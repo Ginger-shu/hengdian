@@ -2667,17 +2667,6 @@
                 console.error('Send invite error:', error);
                 showToast('發送邀請失敗：' + error.message);
             }
-        } 
-                                currentRequest.participants.map(p => p.name).join('、');
-
-                            renderMessages();
-                            scrollToBottom();
-                        }
-                    } catch (error) {
-                        console.error('Student join error:', error);
-                    }
-                }
-            }, 3000);
         }
 
         // ============ End Chat ============
