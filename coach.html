@@ -8,6 +8,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- LINE LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root {
             --white: #ffffff;
@@ -1491,7 +1493,8 @@
                 <button class="action-btn" onclick="sendQuick('👋 我可以接手！')">👋 我可以接手</button>
                 <button class="action-btn" onclick="sendQuick('😅 那天也有課')">😅 那天也有課</button>
                 <button class="action-btn pink" onclick="openSearchStudent()">🔍 查詢學員</button>
-                <button class="action-btn confirm" onclick="sendQuick('✅ 確認接手，我來處理！')">✅ 確認接手</button>
+                <button class="action-btn confirm" id="confirmSubstituteBtn" onclick="confirmSubstitute()" style="display:none;">✅ 確認接手</button>
+                <button class="action-btn confirm" onclick="sendQuick('✅ 確認接手，我來處理！')" id="quickConfirmBtn">✅ 確認接手</button>
             </div>
 
             <!-- 表情選擇面板 -->
@@ -1746,13 +1749,15 @@
         };
 
         // ============ Data ============
-        // 目前登入的教練
-        // TODO: 整合 LINE LIFF 後，從 LIFF 取得用戶資訊
-        // 目前需要手動設定教練 ID（從 Supabase coaches 表取得）
+        // LIFF ID（教練端）
+        const LIFF_ID = '2007947083-qnj4VPXg';
+        
+        // 目前登入的教練（由 LIFF 自動取得）
         let currentUser = {
-            id: '', // 請填入教練的 UUID
+            id: '',
             name: '',
             avatar: '',
+            lineUid: '',
             role: 'teacher'
         };
 
@@ -1765,20 +1770,47 @@
         let selectedStudent = null;
         let messagesSubscription = null;
 
+        // ============ LIFF Init ============
+        async function initLiff() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                console.log('LIFF initialized');
+                
+                // 檢查是否登入
+                if (!liff.isLoggedIn()) {
+                    // 未登入，導向 LINE 登入
+                    liff.login();
+                    return false;
+                }
+                
+                // 取得用戶 Profile
+                const profile = await liff.getProfile();
+                console.log('LINE Profile:', profile);
+                
+                currentUser.lineUid = profile.userId;
+                currentUser.name = profile.displayName;
+                currentUser.avatar = profile.displayName.charAt(0);
+                
+                return true;
+            } catch (error) {
+                console.error('LIFF init error:', error);
+                showToast('LINE 登入失敗');
+                return false;
+            }
+        }
+
         // ============ Init ============
         async function init() {
-            // 檢查是否設定了教練 ID
-            if (!currentUser.id) {
-                document.getElementById('userAvatarSmall').textContent = '?';
-                document.getElementById('userNameDisplay').textContent = '未設定';
-                showToast('請先設定教練 ID');
-                console.log('請在 currentUser.id 填入教練的 UUID');
-                console.log('可從 Supabase coaches 表取得');
-                return;
-            }
+            document.getElementById('userAvatarSmall').textContent = '...';
+            document.getElementById('userNameDisplay').textContent = '登入中';
             
-            document.getElementById('userAvatarSmall').textContent = currentUser.avatar || '?';
-            document.getElementById('userNameDisplay').textContent = currentUser.name || '載入中';
+            // 初始化 LIFF
+            const liffReady = await initLiff();
+            if (!liffReady) return;
+            
+            // 更新顯示（先用 LINE 名稱）
+            document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
+            document.getElementById('userNameDisplay').textContent = currentUser.name;
             
             // 載入最近使用的表情
             loadRecentEmojis();
@@ -1792,15 +1824,25 @@
                     loadStudents()
                 ]);
                 
-                // 如果沒有設定名稱，從資料庫取得
-                if (!currentUser.name) {
-                    const coach = allCoaches.find(c => c.id === currentUser.id);
-                    if (coach) {
-                        currentUser.name = coach.name;
-                        currentUser.avatar = coach.avatar;
-                        document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
-                        document.getElementById('userNameDisplay').textContent = currentUser.name;
-                    }
+                // 用 LINE UID 查詢對應的教練
+                const coach = allCoaches.find(c => c.line_uid === currentUser.lineUid);
+                
+                if (coach) {
+                    // 找到教練，更新資訊
+                    currentUser.id = coach.id;
+                    currentUser.name = coach.name;
+                    currentUser.avatar = coach.avatar;
+                    document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
+                    document.getElementById('userNameDisplay').textContent = currentUser.name;
+                } else {
+                    // 找不到教練
+                    console.error('找不到對應的教練，LINE UID:', currentUser.lineUid);
+                    showToast('您尚未註冊為教練');
+                    document.getElementById('userNameDisplay').textContent = '未註冊';
+                    
+                    // 顯示提示訊息
+                    alert(`找不到您的教練帳號\n\n請聯繫管理員將您的 LINE UID 加入系統：\n${currentUser.lineUid}`);
+                    return;
                 }
                 
                 // 載入代課請求
@@ -1809,7 +1851,7 @@
                 // 訂閱即時更新
                 subscribeToRequests();
                 
-                showToast('資料載入完成 ✓');
+                showToast('歡迎，' + currentUser.name + ' ✓');
             } catch (error) {
                 console.error('Init error:', error);
                 showToast('載入失敗，請重試');
@@ -2236,24 +2278,38 @@
             const inviteBtn = document.getElementById('inviteStudentBtn');
             const endBtn = document.getElementById('endChatBtn');
             const actionBar = document.getElementById('actionBar');
+            const confirmBtn = document.getElementById('confirmSubstituteBtn');
+            const quickConfirmBtn = document.getElementById('quickConfirmBtn');
+            
+            // 先隱藏所有按鈕
+            inviteBtn.style.display = 'none';
+            confirmBtn.style.display = 'none';
+            quickConfirmBtn.style.display = 'none';
+            endBtn.classList.remove('show');
             
             if (currentRequest.status === 'resolved') {
                 // 已結束：隱藏所有操作按鈕
                 participantsBar.classList.remove('with-student');
-                inviteBtn.style.display = 'none';
-                endBtn.classList.remove('show');
                 actionBar.style.display = 'none';
+                
             } else if (currentRequest.studentJoined) {
                 // 學員已加入：粉色背景，顯示結束按鈕
                 participantsBar.classList.add('with-student');
-                inviteBtn.style.display = 'none';
                 endBtn.classList.add('show');
                 actionBar.style.display = 'flex';
+                
+            } else if (currentRequest.status === 'discussing' && currentRequest.substituteTeacher?.id === currentUser.id) {
+                // 討論中且我是代課教練：顯示「確認接手」按鈕（會通知學員）
+                participantsBar.classList.remove('with-student');
+                confirmBtn.style.display = 'flex';
+                inviteBtn.style.display = 'flex';
+                actionBar.style.display = 'flex';
+                
             } else {
-                // 學員未加入：綠色背景，顯示邀請按鈕
+                // 其他狀態：顯示基本操作按鈕
                 participantsBar.classList.remove('with-student');
                 inviteBtn.style.display = 'flex';
-                endBtn.classList.remove('show');
+                quickConfirmBtn.style.display = 'flex';
                 actionBar.style.display = 'flex';
             }
 
@@ -2517,47 +2573,101 @@
             });
         }
 
+        // ============ Confirm Substitute ============
+        async function confirmSubstitute() {
+            if (!currentRequest) return;
+            
+            // 確認對話框
+            if (!confirm(`確定要接手 ${currentRequest.student.name} 的 ${COURSE_CONFIG[currentRequest.course_type].name} 課程嗎？\n\n確認後會發送 LINE 通知給學員。`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在通知學員...');
+                
+                // 呼叫 Edge Function 通知學員
+                const response = await fetch(
+                    'https://kreazazhfqgnlehkbkgg.supabase.co/functions/v1/notify-student',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${supabaseClient.supabaseKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            request_id: currentRequest.id,
+                            substitute_coach_id: currentUser.id
+                        })
+                    }
+                );
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('✅ 已通知學員：' + data.student_name);
+                    
+                    // 重新載入請求列表（狀態已更新）
+                    await loadRequests();
+                    
+                    // 重新載入訊息（會顯示系統訊息）
+                    await loadMessages(currentRequest.id);
+                    
+                    // 更新按鈕狀態
+                    document.getElementById('confirmSubstituteBtn').style.display = 'none';
+                    document.getElementById('quickConfirmBtn').style.display = 'none';
+                } else {
+                    throw new Error(data.error || '通知失敗');
+                }
+                
+            } catch (error) {
+                console.error('Confirm substitute error:', error);
+                showToast('確認接手失敗：' + error.message);
+            }
+        }
+
         async function sendLineInvite() {
             if (!currentRequest) return;
             
-            closeModal('inviteStudentModal');
-            showToast('已發送 LINE 邀請給 ' + currentRequest.student.name);
-
-            // 模擬學員 3 秒後加入（實際應用中由學員點擊連結觸發）
-            setTimeout(async () => {
-                if (currentRequest) {
-                    try {
-                        // 更新 student_joined 狀態
-                        await supabaseClient
-                            .from('substitute_requests')
-                            .update({ student_joined: true })
-                            .eq('id', currentRequest.id);
-                        
-                        // Trigger 會自動更新狀態和新增系統訊息
-                        // Realtime 會自動更新 UI
-                        
-                        showToast(currentRequest.student.name + ' 已加入討論！');
-                        
-                        // 重新載入資料
-                        await loadRequests();
-                        
-                        // 如果還在同一個聊天室，更新 UI
-                        const updatedRequest = requests.find(r => r.id === currentRequest.id);
-                        if (updatedRequest) {
-                            currentRequest = updatedRequest;
-                            
-                            // 更新參與者列
-                            const participantsBar = document.getElementById('participantsBar');
-                            participantsBar.classList.add('with-student');
-                            
-                            document.getElementById('inviteStudentBtn').style.display = 'none';
-                            document.getElementById('endChatBtn').classList.add('show');
-                            
-                            document.getElementById('participantsAvatars').innerHTML = currentRequest.participants.map(p => `
-                                <div class="p-avatar ${p.role === 'student' ? 'student' : ''}">${p.avatar}</div>
-                            `).join('');
-                            
-                            document.getElementById('participantsNames').textContent = 
+            try {
+                showToast('正在發送邀請...');
+                
+                // 呼叫 Edge Function 發送邀請
+                const response = await fetch(
+                    'https://kreazazhfqgnlehkbkgg.supabase.co/functions/v1/invite-student',
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${supabaseClient.supabaseKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            request_id: currentRequest.id,
+                            coach_id: currentUser.id
+                        })
+                    }
+                );
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    closeModal('inviteStudentModal');
+                    
+                    // 更新邀請連結框
+                    document.getElementById('inviteLinkBox').textContent = data.invite_link;
+                    
+                    showToast('已發送 LINE 邀請給 ' + currentRequest.student.name);
+                    
+                    // 重新載入訊息（會顯示系統訊息）
+                    await loadMessages(currentRequest.id);
+                } else {
+                    throw new Error(data.error || '發送失敗');
+                }
+                
+            } catch (error) {
+                console.error('Send invite error:', error);
+                showToast('發送邀請失敗：' + error.message);
+            }
+        } 
                                 currentRequest.participants.map(p => p.name).join('、');
 
                             renderMessages();
