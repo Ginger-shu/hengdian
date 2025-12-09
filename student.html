@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>衡點健身 課程討論</title>
+    <title>衡點 課程討論</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- LINE LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root {
             --white: #ffffff;
@@ -859,6 +861,9 @@
         
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
+        // LIFF ID（學員端）
+        const LIFF_ID = '2007947083-1WVAM9b7';
+        
         // 從 URL 取得 request ID（如 ?room=xxx）
         const urlParams = new URLSearchParams(window.location.search);
         const requestId = urlParams.get('room');
@@ -874,6 +879,31 @@
         let currentStudent = null;
         let messagesSubscription = null;
 
+        // ============ LIFF Init ============
+        async function initLiff() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                console.log('LIFF initialized');
+                
+                // 檢查是否登入
+                if (!liff.isLoggedIn()) {
+                    // 未登入，導向 LINE 登入
+                    liff.login();
+                    return null;
+                }
+                
+                // 取得用戶 Profile
+                const profile = await liff.getProfile();
+                console.log('LINE Profile:', profile);
+                
+                return profile;
+            } catch (error) {
+                console.error('LIFF init error:', error);
+                showToast('LINE 登入失敗');
+                return null;
+            }
+        }
+
         // ============ Init ============
         async function init() {
             // 載入最近使用的表情
@@ -884,7 +914,36 @@
                 return; // 已在上面顯示錯誤訊息
             }
             
+            // 更新顯示
+            document.getElementById('studentName').textContent = '登入中...';
+            
+            // 初始化 LIFF
+            const profile = await initLiff();
+            if (!profile) return;
+            
             try {
+                // 用 LINE UID 查詢學員
+                const { data: student, error: studentError } = await supabaseClient
+                    .from('students')
+                    .select('*')
+                    .eq('line_uid', profile.userId)
+                    .single();
+                
+                if (studentError || !student) {
+                    console.error('找不到學員，LINE UID:', profile.userId);
+                    document.getElementById('studentName').textContent = '未註冊';
+                    alert(`找不到您的學員帳號\n\n請聯繫教練或管理員將您加入系統`);
+                    return;
+                }
+                
+                // 設定學員資訊
+                currentStudent = {
+                    id: student.id,
+                    name: student.name,
+                    avatar: student.avatar,
+                    lineUid: profile.userId
+                };
+                
                 // 載入代課請求資料
                 await loadRequest();
                 
@@ -907,13 +966,6 @@
             if (error) throw error;
             
             currentRequest = data;
-            
-            // 設定學員資訊（從 URL 或使用預設）
-            currentStudent = {
-                id: data.student_id,
-                name: data.student_name,
-                avatar: data.student_avatar
-            };
             
             // 更新 UI
             updateUI();
