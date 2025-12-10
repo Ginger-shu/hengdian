@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>衡點 課程討論</title>
+    <title>衡點健身 課程討論</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Supabase SDK -->
@@ -922,30 +922,79 @@
             if (!profile) return;
             
             try {
-                // 用 LINE UID 查詢學員
-                const { data: student, error: studentError } = await supabaseClient
-                    .from('students')
+                // 先載入代課請求，取得 student_id
+                const { data: request, error: requestError } = await supabaseClient
+                    .from('substitute_requests_full')
                     .select('*')
-                    .eq('line_uid', profile.userId)
+                    .eq('id', requestId)
                     .single();
                 
-                if (studentError || !student) {
-                    console.error('找不到學員，LINE UID:', profile.userId);
-                    document.getElementById('studentName').textContent = '未註冊';
-                    alert(`找不到您的學員帳號\n\n請聯繫教練或管理員將您加入系統`);
+                if (requestError || !request) {
+                    document.getElementById('studentName').textContent = '找不到';
+                    alert('找不到此代課請求');
                     return;
                 }
                 
-                // 設定學員資訊
-                currentStudent = {
-                    id: student.id,
-                    name: student.name,
-                    avatar: student.avatar,
-                    lineUid: profile.userId
-                };
+                currentRequest = request;
                 
-                // 載入代課請求資料
-                await loadRequest();
+                // 取得這個代課請求的學員資料
+                const { data: student, error: studentError } = await supabaseClient
+                    .from('students')
+                    .select('*')
+                    .eq('id', request.student_id)
+                    .single();
+                
+                if (studentError || !student) {
+                    // 找不到學員，自動建立
+                    console.log('自動建立學員帳號');
+                    
+                    const { data: newStudent, error: insertError } = await supabaseClient
+                        .from('students')
+                        .insert({
+                            name: profile.displayName,
+                            avatar: profile.displayName.charAt(0),
+                            line_uid: profile.userId,
+                            notes: '自動建立'
+                        })
+                        .select()
+                        .single();
+                    
+                    if (insertError) {
+                        console.error('建立學員帳號失敗:', insertError);
+                        alert('無法建立帳號，請稍後再試');
+                        return;
+                    }
+                    
+                    currentStudent = {
+                        id: newStudent.id,
+                        name: newStudent.name,
+                        avatar: newStudent.avatar,
+                        lineUid: profile.userId
+                    };
+                } else {
+                    // 找到學員
+                    // 如果學員沒有 LINE UID，更新它
+                    if (!student.line_uid) {
+                        console.log('更新學員 LINE UID');
+                        await supabaseClient
+                            .from('students')
+                            .update({ line_uid: profile.userId })
+                            .eq('id', student.id);
+                    }
+                    
+                    currentStudent = {
+                        id: student.id,
+                        name: student.name,
+                        avatar: student.avatar,
+                        lineUid: profile.userId
+                    };
+                }
+                
+                // 更新 UI
+                updateUI();
+                
+                // 載入訊息
+                await loadMessages();
                 
                 // 訂閱即時訊息
                 subscribeToMessages();
