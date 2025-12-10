@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>衡點 - 管理後台</title>
+    <title>衡點健身 - 管理後台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -497,6 +497,7 @@
 
         <!-- Tabs -->
         <div class="tabs">
+            <div class="tab" data-tab="pending" onclick="switchTab('pending')">⏳ 待審核 <span id="pendingCount" style="background: var(--danger); color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 4px; display: none;">0</span></div>
             <div class="tab active" data-tab="students" onclick="switchTab('students')">👤 學員管理</div>
             <div class="tab" data-tab="coaches" onclick="switchTab('coaches')">👨‍🏫 教練管理</div>
             <div class="tab" data-tab="requests" onclick="switchTab('requests')">📋 代課請求</div>
@@ -504,6 +505,27 @@
 
         <!-- Content -->
         <div class="content">
+            <!-- Pending Tab -->
+            <div class="tab-content" id="pendingTab">
+                <div class="action-bar">
+                    <h2>⏳ 待審核教練</h2>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>LINE 名稱</th>
+                                <th>申請時間</th>
+                                <th>設定專長</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingTable">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Students Tab -->
             <div class="tab-content active" id="studentsTab">
                 <div class="action-bar">
@@ -724,6 +746,7 @@
         // ============ Data ============
         let students = [];
         let coaches = [];
+        let pendingCoaches = [];
         let requests = [];
         let deleteTarget = null;
 
@@ -768,6 +791,7 @@
             showToast('載入中...');
             try {
                 await Promise.all([
+                    loadPendingCoaches(),
                     loadStudents(),
                     loadCoaches(),
                     loadRequests()
@@ -776,6 +800,27 @@
             } catch (error) {
                 console.error('Load error:', error);
                 showToast('載入失敗');
+            }
+        }
+
+        async function loadPendingCoaches() {
+            const { data, error } = await supabaseClient
+                .from('coaches')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            pendingCoaches = data || [];
+            renderPendingCoaches();
+            
+            // 更新待審核數量
+            const countEl = document.getElementById('pendingCount');
+            if (pendingCoaches.length > 0) {
+                countEl.textContent = pendingCoaches.length;
+                countEl.style.display = 'inline';
+            } else {
+                countEl.style.display = 'none';
             }
         }
 
@@ -794,6 +839,7 @@
             const { data, error } = await supabaseClient
                 .from('coaches')
                 .select('*')
+                .neq('status', 'pending')
                 .order('created_at', { ascending: false });
             
             if (error) throw error;
@@ -813,6 +859,117 @@
         }
 
         // ============ Render ============
+        function renderPendingCoaches() {
+            const tbody = document.getElementById('pendingTable');
+            
+            if (pendingCoaches.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="icon">✅</div>
+                                <p>沒有待審核的教練</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = pendingCoaches.map(c => `
+                <tr>
+                    <td>
+                        <div class="avatar-cell">
+                            <div class="avatar">${c.line_display_name?.charAt(0) || c.name?.charAt(0) || '?'}</div>
+                            <span>${c.line_display_name || c.name || '-'}</span>
+                        </div>
+                    </td>
+                    <td>${formatDateTime(c.created_at)}</td>
+                    <td>
+                        <div class="checkbox-group" style="font-size: 13px;">
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="pending_pilates_${c.id}"> 皮拉提斯
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="pending_weight_${c.id}"> 重訓
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="pending_stretch_${c.id}"> 伸展
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="pending_ai_${c.id}"> AI分析
+                            </label>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="action-btns">
+                            <button class="edit-btn" style="background: var(--green-light); color: var(--green-dark);" onclick="approveCoach('${c.id}')">✓ 核准</button>
+                            <button class="delete-btn" onclick="rejectCoach('${c.id}', '${c.line_display_name || c.name}')">✗ 拒絕</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function formatDateTime(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+        }
+        
+        async function approveCoach(id) {
+            // 取得勾選的專長
+            const specialties = [];
+            if (document.getElementById(`pending_pilates_${id}`)?.checked) specialties.push('pilates');
+            if (document.getElementById(`pending_weight_${id}`)?.checked) specialties.push('weight');
+            if (document.getElementById(`pending_stretch_${id}`)?.checked) specialties.push('stretch');
+            if (document.getElementById(`pending_ai_${id}`)?.checked) specialties.push('ai');
+            
+            if (specialties.length === 0) {
+                showToast('請至少選擇一個專長');
+                return;
+            }
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('coaches')
+                    .update({
+                        status: 'approved',
+                        is_active: true,
+                        specialties: specialties
+                    })
+                    .eq('id', id);
+                
+                if (error) throw error;
+                
+                showToast('教練已核准 ✓');
+                await loadPendingCoaches();
+                await loadCoaches();
+            } catch (error) {
+                console.error('Approve error:', error);
+                showToast('核准失敗：' + error.message);
+            }
+        }
+        
+        async function rejectCoach(id, name) {
+            if (!confirm(`確定要拒絕「${name}」的申請嗎？`)) return;
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('coaches')
+                    .update({ status: 'rejected' })
+                    .eq('id', id);
+                
+                if (error) throw error;
+                
+                showToast('已拒絕申請');
+                await loadPendingCoaches();
+            } catch (error) {
+                console.error('Reject error:', error);
+                showToast('操作失敗：' + error.message);
+            }
+        }
+
         function renderStudents() {
             const tbody = document.getElementById('studentsTable');
             
