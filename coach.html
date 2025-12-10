@@ -1818,32 +1818,67 @@
             showToast('載入中...');
             
             try {
+                // 先查詢這個 LINE UID 是否已存在
+                const { data: existingCoach, error: queryError } = await supabaseClient
+                    .from('coaches')
+                    .select('*')
+                    .eq('line_uid', currentUser.lineUid)
+                    .single();
+                
+                if (existingCoach) {
+                    // 找到教練，檢查狀態
+                    if (existingCoach.status === 'pending') {
+                        // 待審核
+                        document.getElementById('userNameDisplay').textContent = '審核中';
+                        showPendingScreen();
+                        return;
+                    } else if (existingCoach.status === 'rejected') {
+                        // 已拒絕
+                        document.getElementById('userNameDisplay').textContent = '已拒絕';
+                        alert('您的申請已被拒絕，請聯繫管理員。');
+                        return;
+                    }
+                    
+                    // 已核准，設定用戶資訊
+                    currentUser.id = existingCoach.id;
+                    currentUser.name = existingCoach.name;
+                    currentUser.avatar = existingCoach.avatar;
+                    document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
+                    document.getElementById('userNameDisplay').textContent = currentUser.name;
+                } else {
+                    // 找不到教練，自動建立待審核帳號
+                    console.log('建立新教練申請，LINE UID:', currentUser.lineUid);
+                    
+                    const { data: newCoach, error: insertError } = await supabaseClient
+                        .from('coaches')
+                        .insert({
+                            name: currentUser.name,
+                            avatar: currentUser.name.charAt(0),
+                            line_uid: currentUser.lineUid,
+                            line_display_name: currentUser.name,
+                            status: 'pending',
+                            is_active: false,
+                            specialties: []
+                        })
+                        .select()
+                        .single();
+                    
+                    if (insertError) {
+                        console.error('建立帳號失敗:', insertError);
+                        alert('申請失敗，請稍後再試');
+                        return;
+                    }
+                    
+                    // 顯示等待審核畫面
+                    showPendingScreen();
+                    return;
+                }
+                
                 // 載入教練和學員資料
                 await Promise.all([
                     loadCoaches(),
                     loadStudents()
                 ]);
-                
-                // 用 LINE UID 查詢對應的教練
-                const coach = allCoaches.find(c => c.line_uid === currentUser.lineUid);
-                
-                if (coach) {
-                    // 找到教練，更新資訊
-                    currentUser.id = coach.id;
-                    currentUser.name = coach.name;
-                    currentUser.avatar = coach.avatar;
-                    document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
-                    document.getElementById('userNameDisplay').textContent = currentUser.name;
-                } else {
-                    // 找不到教練
-                    console.error('找不到對應的教練，LINE UID:', currentUser.lineUid);
-                    showToast('您尚未註冊為教練');
-                    document.getElementById('userNameDisplay').textContent = '未註冊';
-                    
-                    // 顯示提示訊息
-                    alert(`找不到您的教練帳號\n\n請聯繫管理員將您的 LINE UID 加入系統：\n${currentUser.lineUid}`);
-                    return;
-                }
                 
                 // 載入代課請求
                 await loadRequests();
@@ -1856,6 +1891,38 @@
                 console.error('Init error:', error);
                 showToast('載入失敗，請重試');
             }
+        }
+        
+        // 顯示等待審核畫面
+        function showPendingScreen() {
+            document.body.innerHTML = `
+                <div style="
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    background: var(--bg);
+                    padding: 20px;
+                    text-align: center;
+                ">
+                    <div style="font-size: 64px; margin-bottom: 20px;">⏳</div>
+                    <h1 style="font-size: 24px; color: var(--green-dark); margin-bottom: 12px;">申請審核中</h1>
+                    <p style="color: var(--text-secondary); margin-bottom: 8px;">您的教練帳號申請已送出</p>
+                    <p style="color: var(--text-secondary); margin-bottom: 24px;">請等待管理員審核</p>
+                    <p style="color: var(--text-muted); font-size: 14px;">LINE 名稱：${currentUser.name}</p>
+                    <button onclick="location.reload()" style="
+                        margin-top: 30px;
+                        padding: 12px 24px;
+                        background: var(--green);
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        font-size: 16px;
+                        cursor: pointer;
+                    ">重新檢查</button>
+                </div>
+            `;
         }
 
         // ============ Load Data from Supabase ============
