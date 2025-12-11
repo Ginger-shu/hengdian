@@ -99,6 +99,33 @@
             font-weight: 600;
         }
 
+        .user-info-area {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .user-specialties {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .specialty-tag {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 500;
+            background: rgba(255,255,255,0.3);
+        }
+
+        .specialty-tag.pilates { background: rgba(76, 175, 80, 0.3); }
+        .specialty-tag.weight { background: rgba(233, 30, 99, 0.3); }
+        .specialty-tag.stretch { background: rgba(33, 150, 243, 0.3); }
+        .specialty-tag.ai { background: rgba(255, 193, 7, 0.3); }
+
         /* Container */
         .container {
             max-width: 500px;
@@ -240,6 +267,8 @@
         .status-tag.discussing { background: var(--blue-light); color: var(--blue-dark); }
         .status-tag.with-student { background: var(--pink-light); color: var(--pink-dark); }
         .status-tag.resolved { background: var(--green-light); color: var(--green-dark); }
+        .status-tag.cancel_pending { background: #fff3e0; color: #e65100; }
+        .status-tag.cancelled { background: #f5f5f5; color: #9e9e9e; }
 
         .card-body { padding: 0 16px 16px; }
 
@@ -739,6 +768,54 @@
             30% { transform: translateY(-4px); }
         }
 
+        /* Chat Reminder */
+        .chat-reminder {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #fff8e1, #ffecb3);
+            border-bottom: 1px solid #ffe082;
+            font-size: 13px;
+            color: #f57c00;
+        }
+
+        .chat-reminder.show {
+            display: flex;
+        }
+
+        .reminder-icon {
+            font-size: 16px;
+        }
+
+        .reminder-text {
+            flex: 1;
+        }
+
+        .finish-course-btn {
+            padding: 8px 14px;
+            background: var(--green);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .finish-course-btn:hover {
+            background: var(--green-dark);
+            transform: scale(1.02);
+        }
+
+        .finish-course-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         /* Action Bar (replaces quick replies for teachers) */
         .action-bar {
             padding: 10px 20px;
@@ -788,6 +865,17 @@
 
         .action-btn.confirm:hover {
             background: var(--green-dark);
+        }
+
+        .action-btn.cancel {
+            background: #f5f5f5;
+            color: #e74c3c;
+            border-color: #e74c3c;
+        }
+
+        .action-btn.cancel:hover {
+            background: #e74c3c;
+            color: var(--white);
         }
 
         /* Typing Indicator */
@@ -1441,9 +1529,12 @@
                 <h1>衡點</h1>
                 <span>代課協調</span>
             </div>
-            <div class="user-badge">
-                <div class="user-avatar-small" id="userAvatarSmall">王</div>
-                <span id="userNameDisplay">王教練</span>
+            <div class="user-info-area">
+                <div class="user-badge">
+                    <div class="user-avatar-small" id="userAvatarSmall">王</div>
+                    <span id="userNameDisplay">王教練</span>
+                </div>
+                <div class="user-specialties" id="userSpecialties"></div>
             </div>
         </div>
     </header>
@@ -1524,6 +1615,15 @@
                 </div>
             </div>
 
+            <!-- 課程提醒 -->
+            <div class="chat-reminder" id="chatReminder">
+                <span class="reminder-icon">💡</span>
+                <span class="reminder-text">聊天室將於課程完成後才可關閉</span>
+                <button class="finish-course-btn" id="finishCourseBtn" onclick="finishCourse()">
+                    ✅ 課程已完成，結束對話
+                </button>
+            </div>
+
             <div class="chat-messages" id="chatMessages"></div>
 
             <div class="typing-indicator" id="typingIndicator">
@@ -1537,6 +1637,7 @@
                 <button class="action-btn pink" onclick="openSearchStudent()">🔍 查詢學員</button>
                 <button class="action-btn confirm" id="confirmSubstituteBtn" onclick="confirmSubstitute()" style="display:none;">✅ 確認接手</button>
                 <button class="action-btn confirm" onclick="sendQuick('✅ 確認接手，我來處理！')" id="quickConfirmBtn">✅ 確認接手</button>
+                <button class="action-btn cancel" id="cancelRequestBtn" onclick="requestCancelSubstitute()" style="display:none;">❌ 申請取消</button>
             </div>
 
             <!-- 表情選擇面板 -->
@@ -1839,7 +1940,8 @@
             name: '',
             avatar: '',
             lineUid: lineUidFromUrl || '',
-            role: 'teacher'
+            role: 'teacher',
+            specialties: []
         };
 
         let allStudents = [];
@@ -1888,9 +1990,13 @@
                 currentUser.name = coach.name;
                 currentUser.avatar = coach.avatar;
                 currentUser.lineUid = coach.line_uid;
+                currentUser.specialties = coach.specialties || [];
                 
                 document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
                 document.getElementById('userNameDisplay').textContent = currentUser.name;
+                
+                // 顯示教練專長
+                displaySpecialties(currentUser.specialties);
                 
                 // 載入教練和學員資料
                 await Promise.all([
@@ -1909,6 +2015,27 @@
                 console.error('Init error:', error);
                 showToast('載入失敗，請重試');
             }
+        }
+        
+        // 顯示教練專長
+        function displaySpecialties(specialties) {
+            const container = document.getElementById('userSpecialties');
+            if (!specialties || specialties.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            const specialtyConfig = {
+                'pilates': { name: '皮拉提斯', icon: '🧘' },
+                'weight': { name: '重訓', icon: '💪' },
+                'stretch': { name: '伸展', icon: '🤸' },
+                'ai': { name: 'AI體態', icon: '📊' }
+            };
+            
+            container.innerHTML = specialties.map(s => {
+                const config = specialtyConfig[s] || { name: s, icon: '📋' };
+                return `<span class="specialty-tag ${s}">${config.icon} ${config.name}</span>`;
+            }).join('');
         }
         
         // 顯示無效連結畫面
@@ -2348,8 +2475,10 @@
                     pending: '待協調',
                     discussing: '教練討論中',
                     'with-student': '學員已加入',
-                    resolved: '已結束'
-                }[req.status];
+                    resolved: '已結束',
+                    cancel_pending: '待取消確認',
+                    cancelled: '已取消'
+                }[req.status] || req.status;
 
                 return `
                     <div class="request-card ${config.color}" onclick="openChat('${req.id}')">
@@ -2447,35 +2576,66 @@
             const actionBar = document.getElementById('actionBar');
             const confirmBtn = document.getElementById('confirmSubstituteBtn');
             const quickConfirmBtn = document.getElementById('quickConfirmBtn');
+            const cancelBtn = document.getElementById('cancelRequestBtn');
+            const chatReminder = document.getElementById('chatReminder');
+            const finishCourseBtn = document.getElementById('finishCourseBtn');
             
-            // 先隱藏所有按鈕
+            // 判斷是否為原教練
+            const isOriginalCoach = currentRequest.originalTeacher.id === currentUser.id;
+            
+            // 先隱藏所有按鈕和提醒
             inviteBtn.style.display = 'none';
             confirmBtn.style.display = 'none';
             quickConfirmBtn.style.display = 'none';
+            cancelBtn.style.display = 'none';
             endBtn.classList.remove('show');
+            chatReminder.classList.remove('show');
             
             if (currentRequest.status === 'resolved') {
                 // 已結束：隱藏所有操作按鈕
                 participantsBar.classList.remove('with-student');
                 actionBar.style.display = 'none';
                 
+            } else if (currentRequest.status === 'cancelled') {
+                // 已取消：隱藏所有操作按鈕
+                participantsBar.classList.remove('with-student');
+                actionBar.style.display = 'none';
+                
+            } else if (currentRequest.status === 'cancel_pending') {
+                // 待取消確認：隱藏操作按鈕，顯示等待訊息
+                participantsBar.classList.remove('with-student');
+                actionBar.style.display = 'none';
+                
             } else if (currentRequest.studentJoined) {
-                // 學員已加入：粉色背景，顯示結束按鈕
+                // 學員已加入：粉色背景，顯示提醒和結束按鈕
                 participantsBar.classList.add('with-student');
                 endBtn.classList.add('show');
                 actionBar.style.display = 'flex';
+                
+                // 顯示課程提醒（只有原教練可以結束）
+                if (isOriginalCoach) {
+                    chatReminder.classList.add('show');
+                }
                 
             } else if (currentRequest.status === 'discussing' && currentRequest.substituteTeacher?.id === currentUser.id) {
                 // 討論中且我是代課教練：顯示「確認接手」按鈕（會通知學員）
                 participantsBar.classList.remove('with-student');
                 confirmBtn.style.display = 'flex';
-                inviteBtn.style.display = 'flex';
+                // 只有原教練可以邀請學員
+                if (isOriginalCoach) {
+                    inviteBtn.style.display = 'flex';
+                }
                 actionBar.style.display = 'flex';
                 
             } else {
                 // 其他狀態：顯示基本操作按鈕
                 participantsBar.classList.remove('with-student');
-                inviteBtn.style.display = 'flex';
+                // 只有原教練可以邀請學員
+                if (isOriginalCoach) {
+                    inviteBtn.style.display = 'flex';
+                    // 原教練在學員未加入前可以申請取消
+                    cancelBtn.style.display = 'flex';
+                }
                 quickConfirmBtn.style.display = 'flex';
                 actionBar.style.display = 'flex';
             }
@@ -2883,6 +3043,127 @@
             navigator.clipboard.writeText(link).then(() => {
                 showToast('已複製連結！');
             });
+        }
+
+        // ============ Request Cancel Substitute ============
+        async function requestCancelSubstitute() {
+            if (!currentRequest) return;
+            
+            // 確認對話框
+            if (!confirm(`確定要取消這筆代課請求嗎？\n\n課程：${COURSE_CONFIG[currentRequest.course_type].name}\n日期：${formatDate(currentRequest.course_date)}\n學員：${currentRequest.student.name}\n\n取消後需等待管理員確認。`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在申請取消...');
+                
+                // 更新狀態為待取消
+                const { error } = await supabaseClient
+                    .from('substitute_requests')
+                    .update({ status: 'cancel_pending' })
+                    .eq('id', currentRequest.id);
+                
+                if (error) throw error;
+                
+                // 發送系統訊息
+                await supabaseClient
+                    .from('messages')
+                    .insert({
+                        request_id: currentRequest.id,
+                        message_type: 'system',
+                        system_subtype: 'cancel_requested',
+                        content: `📤 ${currentUser.name} 已申請取消此代課請求，等待管理員確認`
+                    });
+                
+                showToast('✅ 已申請取消，等待管理員確認');
+                
+                // 重新載入
+                await loadRequests();
+                
+                // 更新當前請求狀態
+                currentRequest.status = 'cancel_pending';
+                
+                // 隱藏取消按鈕
+                document.getElementById('cancelRequestBtn').style.display = 'none';
+                document.getElementById('actionBar').style.display = 'none';
+                
+                // 重新載入訊息
+                const latestMessages = await loadMessages(currentRequest.id);
+                currentRequest.messages = latestMessages;
+                renderMessages();
+                
+            } catch (error) {
+                console.error('Request cancel error:', error);
+                showToast('申請取消失敗：' + error.message);
+            }
+        }
+
+        // ============ Finish Course & End Chat ============
+        async function finishCourse() {
+            if (!currentRequest) return;
+            
+            const config = COURSE_CONFIG[currentRequest.course_type];
+            const studentName = currentRequest.student.name;
+            const courseDate = formatDate(currentRequest.course_date);
+            
+            // 確認對話框
+            if (!confirm(`確定要結束此代課討論嗎？\n\n課程：${config.name}\n日期：${courseDate}\n學員：${studentName}\n\n結束後將發送感謝訊息給學員，聊天室將關閉。`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在結束對話...');
+                
+                // 發送感謝訊息給學員
+                const thankYouMessage = `🎉 親愛的 ${studentName} 您好：
+
+您的 ${config.name} 課程已順利完成！🎊
+
+感謝您的信任與配合，非常榮幸能為您服務。
+如有任何問題或需要，歡迎隨時與我們聯繫。
+
+祝您身體健康，我們下次見！💪
+- 衡點健身團隊`;
+
+                await supabaseClient
+                    .from('messages')
+                    .insert({
+                        request_id: currentRequest.id,
+                        message_type: 'system',
+                        system_subtype: 'course_completed',
+                        content: thankYouMessage
+                    });
+                
+                // 更新狀態為已結束
+                const { error } = await supabaseClient
+                    .from('substitute_requests')
+                    .update({ status: 'resolved' })
+                    .eq('id', currentRequest.id);
+                
+                if (error) throw error;
+                
+                showToast('✅ 課程已完成，聊天室已結束');
+                
+                // 重新載入
+                await loadRequests();
+                
+                // 更新當前請求狀態
+                currentRequest.status = 'resolved';
+                
+                // 隱藏操作按鈕和提醒
+                document.getElementById('chatReminder').classList.remove('show');
+                document.getElementById('actionBar').style.display = 'none';
+                document.getElementById('endChatBtn').classList.remove('show');
+                
+                // 重新載入訊息
+                const latestMessages = await loadMessages(currentRequest.id);
+                currentRequest.messages = latestMessages;
+                renderMessages();
+                
+            } catch (error) {
+                console.error('Finish course error:', error);
+                showToast('結束失敗：' + error.message);
+            }
         }
 
         // ============ Confirm Substitute ============
