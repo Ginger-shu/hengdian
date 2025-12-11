@@ -747,8 +747,8 @@
         <!-- Messages - 更大的區域 -->
         <div class="messages-area" id="messagesArea">
             <div class="typing-indicator" id="typingIndicator">
-                <span id="typingName">教練</span>正在輸入
                 <div class="typing-dots"><span></span><span></span><span></span></div>
+                <span id="typingText">有人正在輸入...</span>
             </div>
         </div>
 
@@ -841,7 +841,7 @@
         <!-- Input Area -->
         <div class="input-area">
             <button class="emoji-input-btn" onclick="toggleEmojiPanel()">😊</button>
-            <textarea class="chat-input" id="chatInput" placeholder="輸入訊息..." rows="1"></textarea>
+            <textarea class="chat-input" id="chatInput" placeholder="輸入訊息..." rows="1" oninput="handleTyping()"></textarea>
             <button class="send-btn" onclick="sendMessage()">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -1044,6 +1044,9 @@
                 // 訂閱即時訊息
                 subscribeToMessages();
                 
+                // 訂閱 typing 狀態
+                subscribeToTyping();
+                
             } catch (error) {
                 console.error('Init error:', error);
                 showToast('載入失敗');
@@ -1214,6 +1217,84 @@
                 .subscribe();
         }
 
+        // ============ Typing Indicator ============
+        let typingChannel = null;
+        let typingTimeout = null;
+        let isTyping = false;
+        
+        function subscribeToTyping() {
+            if (!requestId) return;
+            
+            typingChannel = supabaseClient
+                .channel(`typing-${requestId}`)
+                .on('broadcast', { event: 'typing' }, (payload) => {
+                    const data = payload.payload;
+                    
+                    // 忽略自己的 typing 事件
+                    if (currentStudent && data.user_id === currentStudent.id) return;
+                    
+                    const indicator = document.getElementById('typingIndicator');
+                    const typingText = document.getElementById('typingText');
+                    
+                    if (data.is_typing) {
+                        if (typingText) {
+                            typingText.textContent = `${data.user_name} 正在輸入...`;
+                        }
+                        indicator.classList.add('show');
+                        
+                        // 滾動到底部
+                        const container = document.getElementById('messagesArea');
+                        container.scrollTop = container.scrollHeight;
+                    } else {
+                        indicator.classList.remove('show');
+                    }
+                })
+                .subscribe();
+        }
+        
+        function handleTyping() {
+            if (!currentStudent || !typingChannel) return;
+            
+            // 如果還沒發送 typing 狀態，發送一次
+            if (!isTyping) {
+                isTyping = true;
+                typingChannel.send({
+                    type: 'broadcast',
+                    event: 'typing',
+                    payload: {
+                        user_id: currentStudent.id,
+                        user_name: currentStudent.name,
+                        is_typing: true
+                    }
+                });
+            }
+            
+            // 清除之前的 timeout
+            if (typingTimeout) {
+                clearTimeout(typingTimeout);
+            }
+            
+            // 2 秒後停止 typing 狀態
+            typingTimeout = setTimeout(() => {
+                stopTyping();
+            }, 2000);
+        }
+        
+        function stopTyping() {
+            if (!currentStudent || !typingChannel || !isTyping) return;
+            
+            isTyping = false;
+            typingChannel.send({
+                type: 'broadcast',
+                event: 'typing',
+                payload: {
+                    user_id: currentStudent.id,
+                    user_name: currentStudent.name,
+                    is_typing: false
+                }
+            });
+        }
+
         // ============ UI Functions ============
         function toggleInfoBar() {
             document.getElementById('infoBar').classList.toggle('expanded');
@@ -1232,6 +1313,9 @@
             const content = input.value.trim();
             if (!content || !currentStudent) return;
             input.value = '';
+            
+            // 停止 typing 狀態
+            stopTyping();
 
             try {
                 await supabaseClient
@@ -1349,6 +1433,21 @@
             const weekday = weekdays[date.getDay()];
             return `${month}/${day}（${weekday}）`;
         }
+
+        // ============ Enter 鍵送出訊息 ============
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+                chatInput.addEventListener('keydown', function(e) {
+                    // Enter 送出（不含 Shift）
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault(); // 防止換行
+                        sendMessage();
+                    }
+                    // Shift + Enter 換行（預設行為，不用處理）
+                });
+            }
+        });
 
         // ============ Start ============
         document.addEventListener('DOMContentLoaded', init);
