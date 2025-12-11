@@ -2205,6 +2205,8 @@
                             const messages = await loadMessages(requestId);
                             currentRequest.messages = messages;
                             renderMessages();
+                            // 自動滾動到底部
+                            scrollToBottom();
                         }
                     }
                 )
@@ -2388,7 +2390,7 @@
         }
 
         // ============ Chat ============
-        function openChat(requestId) {
+        async function openChat(requestId) {
             currentRequest = requests.find(r => r.id === requestId);
             if (!currentRequest) return;
 
@@ -2478,10 +2480,22 @@
                 actionBar.style.display = 'flex';
             }
 
-            renderMessages();
-
+            // 先顯示聊天室
             document.getElementById('chatOverlay').classList.add('active');
             document.body.style.overflow = 'hidden';
+            
+            // 顯示載入中
+            document.getElementById('chatMessages').innerHTML = `
+                <div class="message system">
+                    <div class="system-text">載入訊息中...</div>
+                </div>
+            `;
+            
+            // 重新載入最新訊息
+            const latestMessages = await loadMessages(requestId);
+            currentRequest.messages = latestMessages;
+            renderMessages();
+            
             setTimeout(scrollToBottom, 100);
             
             // 訂閱此聊天室的即時訊息
