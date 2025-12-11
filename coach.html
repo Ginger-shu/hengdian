@@ -8,8 +8,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- LINE LIFF SDK -->
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root {
             --white: #ffffff;
@@ -1718,13 +1716,25 @@
             </div>
             <div class="modal-body">
                 <div class="invite-card">
-                    <h3>📱 發送連結給 <span id="inviteStudentName">學員</span></h3>
-                    <div class="invite-link-box" id="inviteLinkBox">
-                        載入中...
+                    <h3>📱 邀請 <span id="inviteStudentName">學員</span> 加入</h3>
+                    
+                    <!-- 邀請連結 -->
+                    <div style="margin: 16px 0;">
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">邀請連結：</div>
+                        <div class="invite-link-box" id="inviteLinkBox" style="font-size: 12px; word-break: break-all;">
+                            載入中...
+                        </div>
                     </div>
+                    
+                    <!-- 提示訊息 -->
+                    <div id="inviteHint" style="padding: 12px; background: var(--yellow-light); border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: none;">
+                        <div style="font-weight: 500; margin-bottom: 4px;">💡 學員尚未綁定 LINE</div>
+                        <div style="color: var(--text-secondary);">請複製連結，手動傳送給學員</div>
+                    </div>
+                    
                     <div class="invite-actions">
                         <button class="invite-btn copy" onclick="copyInviteLink()">📋 複製連結</button>
-                        <button class="invite-btn line" onclick="sendLineInvite()">💬 LINE 發送</button>
+                        <button class="invite-btn line" id="lineInviteBtn" onclick="sendLineInvite()">💬 LINE 發送</button>
                     </div>
                 </div>
             </div>
@@ -1765,15 +1775,16 @@
         };
 
         // ============ Data ============
-        // LIFF ID（教練端）
-        const LIFF_ID = '2007947083-qnj4VPXg';
+        // 從 URL 參數取得 LINE UID
+        const urlParams = new URLSearchParams(window.location.search);
+        const lineUidFromUrl = urlParams.get('uid');
         
-        // 目前登入的教練（由 LIFF 自動取得）
+        // 目前登入的教練
         let currentUser = {
             id: '',
             name: '',
             avatar: '',
-            lineUid: '',
+            lineUid: lineUidFromUrl || '',
             role: 'teacher'
         };
 
@@ -1786,47 +1797,16 @@
         let selectedStudent = null;
         let messagesSubscription = null;
 
-        // ============ LIFF Init ============
-        async function initLiff() {
-            try {
-                await liff.init({ liffId: LIFF_ID });
-                console.log('LIFF initialized');
-                
-                // 檢查是否登入
-                if (!liff.isLoggedIn()) {
-                    // 未登入，導向 LINE 登入
-                    liff.login();
-                    return false;
-                }
-                
-                // 取得用戶 Profile
-                const profile = await liff.getProfile();
-                console.log('LINE Profile:', profile);
-                
-                currentUser.lineUid = profile.userId;
-                currentUser.name = profile.displayName;
-                currentUser.avatar = profile.displayName.charAt(0);
-                
-                return true;
-            } catch (error) {
-                console.error('LIFF init error:', error);
-                showToast('LINE 登入失敗');
-                return false;
-            }
-        }
-
         // ============ Init ============
         async function init() {
             document.getElementById('userAvatarSmall').textContent = '...';
-            document.getElementById('userNameDisplay').textContent = '登入中';
+            document.getElementById('userNameDisplay').textContent = '載入中';
             
-            // 初始化 LIFF
-            const liffReady = await initLiff();
-            if (!liffReady) return;
-            
-            // 更新顯示（先用 LINE 名稱）
-            document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
-            document.getElementById('userNameDisplay').textContent = currentUser.name;
+            // 檢查是否有 LINE UID 參數
+            if (!lineUidFromUrl) {
+                showInvalidLinkScreen();
+                return;
+            }
             
             // 載入最近使用的表情
             loadRecentEmojis();
@@ -1834,61 +1814,29 @@
             showToast('載入中...');
             
             try {
-                // 先查詢這個 LINE UID 是否已存在
-                const { data: existingCoach, error: queryError } = await supabaseClient
+                // 用 LINE UID 查詢教練
+                const { data: coach, error: queryError } = await supabaseClient
                     .from('coaches')
                     .select('*')
-                    .eq('line_uid', currentUser.lineUid)
+                    .eq('line_uid', lineUidFromUrl)
+                    .eq('status', 'approved')
+                    .eq('is_active', true)
                     .single();
                 
-                if (existingCoach) {
-                    // 找到教練，檢查狀態
-                    if (existingCoach.status === 'pending') {
-                        // 待審核
-                        document.getElementById('userNameDisplay').textContent = '審核中';
-                        showPendingScreen();
-                        return;
-                    } else if (existingCoach.status === 'rejected') {
-                        // 已拒絕
-                        document.getElementById('userNameDisplay').textContent = '已拒絕';
-                        alert('您的申請已被拒絕，請聯繫管理員。');
-                        return;
-                    }
-                    
-                    // 已核准，設定用戶資訊
-                    currentUser.id = existingCoach.id;
-                    currentUser.name = existingCoach.name;
-                    currentUser.avatar = existingCoach.avatar;
-                    document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
-                    document.getElementById('userNameDisplay').textContent = currentUser.name;
-                } else {
-                    // 找不到教練，自動建立待審核帳號
-                    console.log('建立新教練申請，LINE UID:', currentUser.lineUid);
-                    
-                    const { data: newCoach, error: insertError } = await supabaseClient
-                        .from('coaches')
-                        .insert({
-                            name: currentUser.name,
-                            avatar: currentUser.name.charAt(0),
-                            line_uid: currentUser.lineUid,
-                            line_display_name: currentUser.name,
-                            status: 'pending',
-                            is_active: false,
-                            specialties: []
-                        })
-                        .select()
-                        .single();
-                    
-                    if (insertError) {
-                        console.error('建立帳號失敗:', insertError);
-                        alert('申請失敗，請稍後再試');
-                        return;
-                    }
-                    
-                    // 顯示等待審核畫面
-                    showPendingScreen();
+                if (queryError || !coach) {
+                    // 找不到教練或未核准
+                    showUnauthorizedScreen();
                     return;
                 }
+                
+                // 設定用戶資訊
+                currentUser.id = coach.id;
+                currentUser.name = coach.name;
+                currentUser.avatar = coach.avatar;
+                currentUser.lineUid = coach.line_uid;
+                
+                document.getElementById('userAvatarSmall').textContent = currentUser.avatar;
+                document.getElementById('userNameDisplay').textContent = currentUser.name;
                 
                 // 載入教練和學員資料
                 await Promise.all([
@@ -1909,8 +1857,8 @@
             }
         }
         
-        // 顯示等待審核畫面
-        function showPendingScreen() {
+        // 顯示無效連結畫面
+        function showInvalidLinkScreen() {
             document.body.innerHTML = `
                 <div style="
                     display: flex;
@@ -1922,21 +1870,31 @@
                     padding: 20px;
                     text-align: center;
                 ">
-                    <div style="font-size: 64px; margin-bottom: 20px;">⏳</div>
-                    <h1 style="font-size: 24px; color: var(--green-dark); margin-bottom: 12px;">申請審核中</h1>
-                    <p style="color: var(--text-secondary); margin-bottom: 8px;">您的教練帳號申請已送出</p>
-                    <p style="color: var(--text-secondary); margin-bottom: 24px;">請等待管理員審核</p>
-                    <p style="color: var(--text-muted); font-size: 14px;">LINE 名稱：${currentUser.name}</p>
-                    <button onclick="location.reload()" style="
-                        margin-top: 30px;
-                        padding: 12px 24px;
-                        background: var(--green);
-                        color: white;
-                        border: none;
-                        border-radius: 8px;
-                        font-size: 16px;
-                        cursor: pointer;
-                    ">重新檢查</button>
+                    <div style="font-size: 64px; margin-bottom: 20px;">🔗</div>
+                    <h1 style="font-size: 24px; color: var(--pink-dark); margin-bottom: 12px;">無效的連結</h1>
+                    <p style="color: var(--text-secondary); margin-bottom: 8px;">請使用管理員提供的專屬連結</p>
+                    <p style="color: var(--text-muted); font-size: 14px;">連結格式：coach.html?uid=您的ID</p>
+                </div>
+            `;
+        }
+        
+        // 顯示未授權畫面
+        function showUnauthorizedScreen() {
+            document.body.innerHTML = `
+                <div style="
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    background: var(--bg);
+                    padding: 20px;
+                    text-align: center;
+                ">
+                    <div style="font-size: 64px; margin-bottom: 20px;">🚫</div>
+                    <h1 style="font-size: 24px; color: var(--pink-dark); margin-bottom: 12px;">無法存取</h1>
+                    <p style="color: var(--text-secondary); margin-bottom: 8px;">您的帳號尚未核准或已停用</p>
+                    <p style="color: var(--text-muted); font-size: 14px;">請聯繫管理員</p>
                 </div>
             `;
         }
@@ -2195,6 +2153,28 @@
             // 發送第一則訊息
             if (requestData.message) {
                 await sendMessageToSupabase(data.id, requestData.message);
+            }
+            
+            // 通知同專長的教練
+            try {
+                const response = await supabaseClient.functions.invoke('notify-coaches', {
+                    body: {
+                        request_id: data.id,
+                        course_type: requestData.course_type,
+                        course_date: requestData.course_date,
+                        course_time: requestData.course_time,
+                        original_coach_id: currentUser.id,
+                        original_coach_name: currentUser.name,
+                        student_name: selectedStudent?.name || '學員'
+                    }
+                });
+                
+                if (response.data?.notified_count > 0) {
+                    showToast(`已通知 ${response.data.notified_count} 位教練`);
+                }
+            } catch (notifyError) {
+                console.error('Notify coaches error:', notifyError);
+                // 不阻擋主流程
             }
             
             return data;
@@ -2639,12 +2619,42 @@
         }
 
         // ============ Invite Student ============
-        function openInviteStudent() {
+        const STUDENT_LIFF_ID = '2007947083-1WVAM9b7';
+        
+        async function openInviteStudent() {
             if (!currentRequest) return;
             
-            document.getElementById('inviteStudentName').textContent = currentRequest.student.name;
-            document.getElementById('inviteLinkBox').textContent = 
-                `https://liff.line.me/xxxxx?room=${currentRequest.id}`;
+            const studentName = currentRequest.student?.name || currentRequest.student_name;
+            document.getElementById('inviteStudentName').textContent = studentName;
+            
+            // 產生邀請連結
+            const inviteLink = `https://liff.line.me/${STUDENT_LIFF_ID}?room=${currentRequest.id}`;
+            document.getElementById('inviteLinkBox').textContent = inviteLink;
+            
+            // 查詢學員是否有 LINE UID
+            const studentId = currentRequest.student?.id || currentRequest.student_id;
+            const { data: student } = await supabaseClient
+                .from('students')
+                .select('line_uid')
+                .eq('id', studentId)
+                .single();
+            
+            const hasLineUid = student && student.line_uid;
+            
+            // 根據是否有 LINE UID 顯示不同 UI
+            const hintEl = document.getElementById('inviteHint');
+            const lineBtnEl = document.getElementById('lineInviteBtn');
+            
+            if (hasLineUid) {
+                // 有 LINE UID，可以自動發送
+                hintEl.style.display = 'none';
+                lineBtnEl.style.display = 'block';
+                lineBtnEl.disabled = false;
+            } else {
+                // 沒有 LINE UID，顯示提示
+                hintEl.style.display = 'block';
+                lineBtnEl.style.display = 'none';
+            }
             
             openModal('inviteStudentModal');
         }
@@ -2738,7 +2748,13 @@
                     // 更新邀請連結框
                     document.getElementById('inviteLinkBox').textContent = data.invite_link;
                     
-                    showToast('已發送 LINE 邀請給 ' + currentRequest.student.name);
+                    // 根據是否發送了 LINE 顯示不同訊息
+                    const studentName = currentRequest.student?.name || currentRequest.student_name;
+                    if (data.line_sent) {
+                        showToast('✅ 已發送 LINE 邀請給 ' + studentName);
+                    } else {
+                        showToast('📋 已產生連結，請手動傳送給 ' + studentName);
+                    }
                     
                     // 重新載入訊息（會顯示系統訊息）
                     await loadMessages(currentRequest.id);
