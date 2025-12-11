@@ -285,6 +285,27 @@
             box-shadow: 0 0 0 2px var(--pink-light);
         }
 
+        /* Student Reminder */
+        .student-reminder {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border-bottom: 1px solid #a5d6a7;
+            font-size: 12px;
+            color: #2e7d32;
+        }
+
+        .student-reminder .reminder-icon {
+            font-size: 14px;
+        }
+
+        .student-reminder .reminder-text {
+            flex: 1;
+            line-height: 1.4;
+        }
+
         /* Messages */
         .messages-area {
             flex: 1;
@@ -742,6 +763,12 @@
             <span id="participantsText">👥 載入中...</span>
             <div class="participants-avatars" id="participantsAvatars">
             </div>
+        </div>
+
+        <!-- 學員提醒 -->
+        <div class="student-reminder">
+            <span class="reminder-icon">💡</span>
+            <span class="reminder-text">如有任何問題，可隨時透過此連結進入聊天室與教練溝通</span>
         </div>
 
         <!-- Messages - 更大的區域 -->
