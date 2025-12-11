@@ -864,31 +864,73 @@
         // LIFF ID（學員端）
         const LIFF_ID = '2007947083-1WVAM9b7';
         
-        // 從 URL 取得 request ID（如 ?room=xxx）
-        const urlParams = new URLSearchParams(window.location.search);
-        const requestId = urlParams.get('room');
-        
-        // 檢查是否有 room 參數
-        if (!requestId) {
-            document.getElementById('infoBarTitle').textContent = '無效的連結';
-            document.getElementById('infoBarSubtitle').textContent = '請從 LINE 訊息中的連結進入';
-            document.getElementById('studentName').textContent = '-';
-        }
-        
+        let requestId = null; // 會在 LIFF 初始化後取得
         let currentRequest = null;
         let currentStudent = null;
         let messagesSubscription = null;
+
+        // ============ 取得 room 參數 ============
+        function getRequestIdFromUrl() {
+            // 方法 1: 從 window.location.search 取得
+            let urlParams = new URLSearchParams(window.location.search);
+            let roomId = urlParams.get('room');
+            
+            if (roomId) {
+                console.log('從 window.location.search 取得 room:', roomId);
+                return roomId;
+            }
+            
+            // 方法 2: 從 window.location.href 解析
+            const href = window.location.href;
+            const match = href.match(/[?&]room=([^&]+)/);
+            if (match) {
+                roomId = decodeURIComponent(match[1]);
+                console.log('從 href 解析取得 room:', roomId);
+                return roomId;
+            }
+            
+            // 方法 3: 從 hash 取得（有些 LIFF 會把參數放在 hash）
+            if (window.location.hash) {
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                roomId = hashParams.get('room');
+                if (roomId) {
+                    console.log('從 hash 取得 room:', roomId);
+                    return roomId;
+                }
+            }
+            
+            console.log('找不到 room 參數');
+            console.log('window.location.href:', window.location.href);
+            console.log('window.location.search:', window.location.search);
+            console.log('window.location.hash:', window.location.hash);
+            
+            return null;
+        }
 
         // ============ LIFF Init ============
         async function initLiff() {
             try {
                 await liff.init({ liffId: LIFF_ID });
                 console.log('LIFF initialized');
+                console.log('LIFF isInClient:', liff.isInClient());
+                console.log('LIFF OS:', liff.getOS());
+                
+                // LIFF 初始化後再取得 URL 參數
+                requestId = getRequestIdFromUrl();
+                console.log('requestId:', requestId);
+                
+                // 檢查是否有 room 參數
+                if (!requestId) {
+                    document.getElementById('infoBarTitle').textContent = '無效的連結';
+                    document.getElementById('infoBarSubtitle').textContent = '請從 LINE 訊息中的連結進入';
+                    document.getElementById('studentName').textContent = '-';
+                    return null;
+                }
                 
                 // 檢查是否登入
                 if (!liff.isLoggedIn()) {
-                    // 未登入，導向 LINE 登入
-                    liff.login();
+                    // 未登入，導向 LINE 登入（帶上原本的參數）
+                    liff.login({ redirectUri: window.location.href });
                     return null;
                 }
                 
@@ -899,7 +941,8 @@
                 return profile;
             } catch (error) {
                 console.error('LIFF init error:', error);
-                showToast('LINE 登入失敗');
+                console.error('Error details:', JSON.stringify(error));
+                showToast('LINE 登入失敗: ' + (error.message || '未知錯誤'));
                 return null;
             }
         }
@@ -909,17 +952,19 @@
             // 載入最近使用的表情
             loadRecentEmojis();
             
-            // 檢查是否有 room 參數
-            if (!requestId) {
-                return; // 已在上面顯示錯誤訊息
+            // 初始化 LIFF（會在裡面取得 requestId）
+            document.getElementById('studentName').textContent = '初始化中...';
+            
+            const profile = await initLiff();
+            
+            // 如果 initLiff 返回 null，表示沒有 room 參數或登入失敗
+            if (!profile) {
+                console.log('initLiff 返回 null，停止初始化');
+                return;
             }
             
             // 更新顯示
-            document.getElementById('studentName').textContent = '登入中...';
-            
-            // 初始化 LIFF
-            const profile = await initLiff();
-            if (!profile) return;
+            document.getElementById('studentName').textContent = '載入中...';
             
             try {
                 // 先載入代課請求，取得 student_id
