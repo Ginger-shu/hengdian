@@ -564,7 +564,7 @@
                                 <th>教練</th>
                                 <th>電話</th>
                                 <th>專長</th>
-                                <th>LINE UID</th>
+                                <th>專屬連結</th>
                                 <th>狀態</th>
                                 <th>操作</th>
                             </tr>
@@ -592,11 +592,36 @@
                                 <th>原教練</th>
                                 <th>代課教練</th>
                                 <th>狀態</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="requestsTable">
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Modal for Admin -->
+    <div class="modal-overlay" id="chatModal" style="background: rgba(0,0,0,0.8);">
+        <div class="modal" style="width: 100%; max-width: 600px; height: 80vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="background: var(--green); color: white;">
+                <h3 id="chatModalTitle">💬 聊天室</h3>
+                <button class="modal-close" onclick="closeChatModal()" style="color: white;">&times;</button>
+            </div>
+            <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 0; background: #f5f5f5;" id="chatMessages">
+                <!-- 訊息會動態載入 -->
+            </div>
+            <div class="modal-footer" style="padding: 12px; background: white; border-top: 1px solid #eee;">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="adminMessageInput" placeholder="以管理員身份發送訊息..." 
+                        style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; font-size: 14px;"
+                        onkeypress="if(event.key === 'Enter') sendAdminMessage()">
+                    <button onclick="sendAdminMessage()" 
+                        style="padding: 10px 20px; background: var(--green); color: white; border: none; border-radius: 20px; cursor: pointer;">
+                        發送
+                    </button>
                 </div>
             </div>
         </div>
@@ -722,7 +747,7 @@
 
     <script>
         // ============ Config ============
-        const ADMIN_PASSWORD = '20251210'; // 請修改為您的密碼
+        const ADMIN_PASSWORD = '20251211'; // 請修改為您的密碼
         
         const SUPABASE_URL = 'https://kreazazhfqgnlehkbkgg.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZWF6YXpoZnFnbmxlaGtia2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NjE1NDMsImV4cCI6MjA4MDMzNzU0M30.W2tMRReAO3PEX9q6uvDCUu7UB25dZMwS1nSYPCNR9fU';
@@ -1035,7 +1060,14 @@
                     </td>
                     <td>${c.phone || '-'}</td>
                     <td>${(c.specialties || []).map(s => courseTypeNames[s] || s).join('、') || '-'}</td>
-                    <td style="font-size: 12px; color: var(--text-muted);">${c.line_uid ? c.line_uid.substring(0, 15) + '...' : '-'}</td>
+                    <td>
+                        ${c.line_uid ? `
+                            <button class="edit-btn" style="font-size: 11px; padding: 4px 8px;" 
+                                onclick="copyCoachLink('${c.line_uid}', '${c.name}')">
+                                📋 複製連結
+                            </button>
+                        ` : '<span style="color: var(--text-muted);">未設定</span>'}
+                    </td>
                     <td>
                         <span class="status-badge ${c.is_active ? 'status-active' : 'status-inactive'}">
                             ${c.is_active ? '啟用' : '停用'}
@@ -1050,6 +1082,18 @@
                 </tr>
             `).join('');
         }
+        
+        function copyCoachLink(lineUid, coachName) {
+            const baseUrl = 'https://ginger-shu.github.io/hengdian/coach.html';
+            const link = `${baseUrl}?uid=${lineUid}`;
+            
+            navigator.clipboard.writeText(link).then(() => {
+                showToast(`已複製 ${coachName} 的專屬連結`);
+            }).catch(() => {
+                // Fallback
+                prompt('請複製以下連結：', link);
+            });
+        }
 
         function renderRequests() {
             const tbody = document.getElementById('requestsTable');
@@ -1057,7 +1101,7 @@
             if (requests.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7">
+                        <td colspan="8">
                             <div class="empty-state">
                                 <div class="icon">📋</div>
                                 <p>尚無代課請求</p>
@@ -1080,6 +1124,11 @@
                         <span class="status-badge ${r.status === 'resolved' ? 'status-active' : 'status-inactive'}">
                             ${statusNames[r.status] || r.status || '-'}
                         </span>
+                    </td>
+                    <td>
+                        <button class="edit-btn" onclick="openChatRoom('${r.id}', '${r.student_name}', '${r.course_date}')">
+                            💬 聊天室
+                        </button>
                     </td>
                 </tr>
             `).join('');
@@ -1171,7 +1220,7 @@
             
             const tbody = document.getElementById('requestsTable');
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">找不到符合的請求</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">找不到符合的請求</td></tr>`;
                 return;
             }
             
@@ -1187,6 +1236,11 @@
                         <span class="status-badge ${r.status === 'resolved' ? 'status-active' : 'status-inactive'}">
                             ${statusNames[r.status] || r.status || '-'}
                         </span>
+                    </td>
+                    <td>
+                        <button class="edit-btn" onclick="openChatRoom('${r.id}', '${r.student_name}', '${r.course_date}')">
+                            💬 聊天室
+                        </button>
                     </td>
                 </tr>
             `).join('');
@@ -1365,6 +1419,144 @@
 
         function closeModal(id) {
             document.getElementById(id).classList.remove('show');
+        }
+
+        // ============ Chat Room Functions ============
+        let currentChatRoomId = null;
+        let chatSubscription = null;
+        
+        async function openChatRoom(requestId, studentName, courseDate) {
+            currentChatRoomId = requestId;
+            document.getElementById('chatModalTitle').textContent = `💬 ${studentName} - ${courseDate}`;
+            document.getElementById('chatModal').classList.add('show');
+            
+            // 載入訊息
+            await loadChatMessages(requestId);
+            
+            // 訂閱即時訊息
+            subscribeToChatMessages(requestId);
+        }
+        
+        function closeChatModal() {
+            document.getElementById('chatModal').classList.remove('show');
+            currentChatRoomId = null;
+            
+            // 取消訂閱
+            if (chatSubscription) {
+                chatSubscription.unsubscribe();
+                chatSubscription = null;
+            }
+        }
+        
+        async function loadChatMessages(requestId) {
+            const container = document.getElementById('chatMessages');
+            container.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">載入中...</div>';
+            
+            try {
+                const { data: messages, error } = await supabaseClient
+                    .from('messages')
+                    .select('*')
+                    .eq('request_id', requestId)
+                    .order('created_at', { ascending: true });
+                
+                if (error) throw error;
+                
+                renderChatMessages(messages || []);
+            } catch (error) {
+                console.error('Load messages error:', error);
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #f00;">載入失敗</div>';
+            }
+        }
+        
+        function renderChatMessages(messages) {
+            const container = document.getElementById('chatMessages');
+            
+            if (messages.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">尚無訊息</div>';
+                return;
+            }
+            
+            container.innerHTML = messages.map(m => {
+                if (m.message_type === 'system') {
+                    return `
+                        <div style="text-align: center; padding: 8px 16px; margin: 8px 16px;">
+                            <span style="background: #e0e0e0; color: #666; padding: 4px 12px; border-radius: 12px; font-size: 12px;">
+                                ${m.content}
+                            </span>
+                        </div>
+                    `;
+                }
+                
+                const isAdmin = m.sender_type === 'admin';
+                const bgColor = isAdmin ? 'var(--yellow)' : (m.sender_type === 'student' ? 'var(--pink-light)' : 'var(--green-light)');
+                const align = isAdmin ? 'flex-end' : 'flex-start';
+                
+                return `
+                    <div style="display: flex; justify-content: ${align}; padding: 4px 16px;">
+                        <div style="max-width: 70%;">
+                            <div style="font-size: 11px; color: #999; margin-bottom: 2px;">
+                                ${m.sender_name || '未知'} ${m.sender_type === 'admin' ? '(管理員)' : ''}
+                            </div>
+                            <div style="background: ${bgColor}; padding: 10px 14px; border-radius: 16px; font-size: 14px;">
+                                ${m.content}
+                            </div>
+                            <div style="font-size: 10px; color: #bbb; margin-top: 2px;">
+                                ${formatTime(m.created_at)}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // 滾動到底部
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function formatTime(dateStr) {
+            const date = new Date(dateStr);
+            return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+        }
+        
+        function subscribeToChatMessages(requestId) {
+            chatSubscription = supabaseClient
+                .channel(`admin-chat-${requestId}`)
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `request_id=eq.${requestId}`
+                }, (payload) => {
+                    // 重新載入訊息
+                    loadChatMessages(requestId);
+                })
+                .subscribe();
+        }
+        
+        async function sendAdminMessage() {
+            const input = document.getElementById('adminMessageInput');
+            const content = input.value.trim();
+            
+            if (!content || !currentChatRoomId) return;
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('messages')
+                    .insert({
+                        request_id: currentChatRoomId,
+                        sender_type: 'admin',
+                        sender_name: '管理員',
+                        message_type: 'text',
+                        content: content
+                    });
+                
+                if (error) throw error;
+                
+                input.value = '';
+                
+            } catch (error) {
+                console.error('Send message error:', error);
+                showToast('發送失敗');
+            }
         }
 
         // ============ Toast ============
