@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>衡點健身 - 管理後台</title>
+    <title>衡點 - 管理後台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -272,6 +272,17 @@
             color: var(--gray);
         }
 
+        .status-warning {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .status-cancelled {
+            background: #f5f5f5;
+            color: #9e9e9e;
+            text-decoration: line-through;
+        }
+
         .action-btns {
             display: flex;
             gap: 8px;
@@ -516,6 +527,73 @@
                 opacity: 1;
             }
         }
+
+        /* Admin Chat Actions */
+        .admin-chat-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+        }
+
+        .chat-status-info {
+            font-size: 13px;
+        }
+
+        .status-label {
+            color: #666;
+        }
+
+        .status-value {
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .status-value.pending { background: #fff3e0; color: #e65100; }
+        .status-value.discussing { background: #e3f2fd; color: #1565c0; }
+        .status-value.with-student { background: #fce4ec; color: #c2185b; }
+        .status-value.resolved { background: var(--green-light); color: var(--green-dark); }
+        .status-value.cancel_pending { background: #fff3e0; color: #e65100; }
+        .status-value.cancelled { background: #f5f5f5; color: #9e9e9e; }
+
+        .chat-action-btns {
+            display: flex;
+            gap: 8px;
+        }
+
+        .admin-action-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .confirm-cancel-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .confirm-cancel-btn:hover {
+            background: #c0392b;
+        }
+
+        .delete-chat-btn {
+            background: #f5f5f5;
+            color: #666;
+            border: 1px solid #ddd;
+        }
+
+        .delete-chat-btn:hover {
+            background: #e74c3c;
+            color: white;
+            border-color: #e74c3c;
+        }
     </style>
 </head>
 <body>
@@ -652,6 +730,21 @@
             <div class="modal-header" style="background: var(--green); color: white;">
                 <h3 id="chatModalTitle">💬 聊天室</h3>
                 <button class="modal-close" onclick="closeChatModal()" style="color: white;">&times;</button>
+            </div>
+            <!-- 管理員操作列 -->
+            <div class="admin-chat-actions" id="adminChatActions">
+                <div class="chat-status-info">
+                    <span class="status-label">狀態：</span>
+                    <span class="status-value" id="chatStatusValue">-</span>
+                </div>
+                <div class="chat-action-btns">
+                    <button class="admin-action-btn confirm-cancel-btn" id="adminConfirmCancelBtn" onclick="confirmCancelFromChat()" style="display: none;">
+                        ✓ 確認取消
+                    </button>
+                    <button class="admin-action-btn delete-chat-btn" id="adminDeleteChatBtn" onclick="deleteFromChat()">
+                        🗑️ 刪除聊天室
+                    </button>
+                </div>
             </div>
             <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 0; background: #f5f5f5;" id="chatMessages">
                 <!-- 訊息會動態載入 -->
@@ -816,7 +909,9 @@
         const statusNames = {
             'pending': '等待中',
             'discussing': '討論中',
+            'with-student': '學員已加入',
             'resolved': '已解決',
+            'cancel_pending': '⏳ 待取消確認',
             'cancelled': '已取消'
         };
 
@@ -1208,26 +1303,62 @@
                 return;
             }
 
-            tbody.innerHTML = requests.map(r => `
-                <tr>
-                    <td>${r.course_date || '-'}</td>
-                    <td>${r.course_time || '-'}</td>
-                    <td>${courseTypeNames[r.course_type] || r.course_type || '-'}</td>
-                    <td>${r.student_name || '-'}</td>
-                    <td>${r.original_coach_name || '-'}</td>
-                    <td>${r.substitute_coach_name || '-'}</td>
-                    <td>
-                        <span class="status-badge ${r.status === 'resolved' ? 'status-active' : 'status-inactive'}">
-                            ${statusNames[r.status] || r.status || '-'}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="edit-btn" onclick="openChatRoom('${r.id}', '${r.student_name}', '${r.course_date}')">
-                            💬 聊天室
+            tbody.innerHTML = requests.map(r => {
+                // 根據狀態決定操作按鈕
+                let actionButtons = `
+                    <button class="edit-btn" onclick="openChatRoom('${r.id}', '${r.student_name}', '${r.course_date}')">
+                        💬 聊天室
+                    </button>
+                `;
+                
+                // 待取消確認狀態：顯示確認取消按鈕
+                if (r.status === 'cancel_pending') {
+                    actionButtons = `
+                        <button class="edit-btn" style="background: #e74c3c; color: white;" onclick="confirmCancelRequest('${r.id}', '${r.student_name}')">
+                            ✓ 確認取消
                         </button>
-                    </td>
-                </tr>
-            `).join('');
+                        <button class="edit-btn" onclick="openChatRoom('${r.id}', '${r.student_name}', '${r.course_date}')">
+                            💬
+                        </button>
+                    `;
+                }
+                
+                // 已取消或已解決狀態：可以刪除
+                if (r.status === 'cancelled' || r.status === 'resolved') {
+                    actionButtons += `
+                        <button class="delete-btn" onclick="deleteRequest('${r.id}', '${r.student_name}')">
+                            🗑️
+                        </button>
+                    `;
+                }
+                
+                // 狀態樣式
+                let statusClass = 'status-inactive';
+                if (r.status === 'resolved') statusClass = 'status-active';
+                if (r.status === 'cancel_pending') statusClass = 'status-warning';
+                if (r.status === 'cancelled') statusClass = 'status-cancelled';
+                
+                return `
+                    <tr>
+                        <td>${r.course_date || '-'}</td>
+                        <td>${r.course_time || '-'}</td>
+                        <td>${courseTypeNames[r.course_type] || r.course_type || '-'}</td>
+                        <td>${r.student_name || '-'}</td>
+                        <td>${r.original_coach_name || '-'}</td>
+                        <td>${r.substitute_coach_name || '-'}</td>
+                        <td>
+                            <span class="status-badge ${statusClass}">
+                                ${statusNames[r.status] || r.status || '-'}
+                            </span>
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                ${actionButtons}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // ============ Filter ============
@@ -1526,6 +1657,29 @@
             document.getElementById('chatModalTitle').textContent = `💬 ${studentName} - ${courseDate}`;
             document.getElementById('chatModal').classList.add('show');
             
+            // 找到此請求的狀態
+            const request = requests.find(r => r.id === requestId);
+            const status = request?.status || 'pending';
+            
+            // 顯示狀態
+            const statusEl = document.getElementById('chatStatusValue');
+            statusEl.textContent = statusNames[status] || status;
+            statusEl.className = `status-value ${status}`;
+            
+            // 控制按鈕顯示
+            const confirmCancelBtn = document.getElementById('adminConfirmCancelBtn');
+            const deleteChatBtn = document.getElementById('adminDeleteChatBtn');
+            
+            // 待取消確認：顯示確認取消按鈕
+            if (status === 'cancel_pending') {
+                confirmCancelBtn.style.display = 'inline-block';
+            } else {
+                confirmCancelBtn.style.display = 'none';
+            }
+            
+            // 刪除按鈕永遠顯示（但會有確認）
+            deleteChatBtn.style.display = 'inline-block';
+            
             // 載入訊息
             await loadChatMessages(requestId);
             
@@ -1779,6 +1933,154 @@
             } catch (error) {
                 console.error('Send message error:', error);
                 showToast('發送失敗');
+            }
+        }
+
+        // ============ Confirm Cancel Request ============
+        async function confirmCancelRequest(requestId, studentName) {
+            if (!confirm(`確定要取消 ${studentName} 的代課請求嗎？\n\n此操作無法復原。`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在取消...');
+                
+                // 更新狀態為已取消
+                const { error } = await supabaseClient
+                    .from('substitute_requests')
+                    .update({ status: 'cancelled' })
+                    .eq('id', requestId);
+                
+                if (error) throw error;
+                
+                // 發送系統訊息
+                await supabaseClient
+                    .from('messages')
+                    .insert({
+                        request_id: requestId,
+                        message_type: 'system',
+                        system_subtype: 'cancelled',
+                        content: '❌ 管理員已確認取消此代課請求'
+                    });
+                
+                showToast('✅ 已取消代課請求');
+                
+                // 重新載入列表
+                await loadRequests();
+                
+            } catch (error) {
+                console.error('Confirm cancel error:', error);
+                showToast('取消失敗：' + error.message);
+            }
+        }
+
+        // ============ Delete Request ============
+        async function deleteRequest(requestId, studentName) {
+            if (!confirm(`確定要刪除 ${studentName} 的代課請求嗎？\n\n此操作會刪除所有相關對話紀錄，無法復原！`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在刪除...');
+                
+                // 先刪除訊息
+                const { error: msgError } = await supabaseClient
+                    .from('messages')
+                    .delete()
+                    .eq('request_id', requestId);
+                
+                if (msgError) throw msgError;
+                
+                // 刪除參與者記錄
+                const { error: partError } = await supabaseClient
+                    .from('request_participants')
+                    .delete()
+                    .eq('request_id', requestId);
+                
+                // 刪除代課請求
+                const { error: reqError } = await supabaseClient
+                    .from('substitute_requests')
+                    .delete()
+                    .eq('id', requestId);
+                
+                if (reqError) throw reqError;
+                
+                showToast('✅ 已刪除代課請求');
+                
+                // 重新載入列表
+                await loadRequests();
+                
+            } catch (error) {
+                console.error('Delete request error:', error);
+                showToast('刪除失敗：' + error.message);
+            }
+        }
+
+        // ============ Chat Room Actions ============
+        async function confirmCancelFromChat() {
+            if (!currentChatRoomId) return;
+            
+            const request = requests.find(r => r.id === currentChatRoomId);
+            const studentName = request?.student_name || '此學員';
+            
+            await confirmCancelRequest(currentChatRoomId, studentName);
+            
+            // 更新狀態顯示
+            const statusEl = document.getElementById('chatStatusValue');
+            statusEl.textContent = '已取消';
+            statusEl.className = 'status-value cancelled';
+            
+            // 隱藏確認取消按鈕
+            document.getElementById('adminConfirmCancelBtn').style.display = 'none';
+            
+            // 重新載入訊息
+            await loadChatMessages(currentChatRoomId);
+        }
+
+        async function deleteFromChat() {
+            if (!currentChatRoomId) return;
+            
+            const request = requests.find(r => r.id === currentChatRoomId);
+            const studentName = request?.student_name || '此學員';
+            
+            if (!confirm(`確定要刪除 ${studentName} 的聊天室嗎？\n\n此操作會刪除所有對話紀錄，無法復原！`)) {
+                return;
+            }
+            
+            try {
+                showToast('正在刪除...');
+                
+                // 先刪除訊息
+                await supabaseClient
+                    .from('messages')
+                    .delete()
+                    .eq('request_id', currentChatRoomId);
+                
+                // 刪除參與者記錄
+                await supabaseClient
+                    .from('request_participants')
+                    .delete()
+                    .eq('request_id', currentChatRoomId);
+                
+                // 刪除代課請求
+                const { error } = await supabaseClient
+                    .from('substitute_requests')
+                    .delete()
+                    .eq('id', currentChatRoomId);
+                
+                if (error) throw error;
+                
+                showToast('✅ 已刪除聊天室');
+                
+                // 關閉聊天室
+                closeChatModal();
+                
+                // 重新載入列表
+                await loadRequests();
+                
+            } catch (error) {
+                console.error('Delete from chat error:', error);
+                showToast('刪除失敗：' + error.message);
             }
         }
 
