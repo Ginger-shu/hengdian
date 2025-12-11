@@ -473,6 +473,49 @@
                 max-width: none;
             }
         }
+
+        /* Typing Indicator */
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: #f5f5f5;
+        }
+        
+        .typing-indicator.show {
+            display: flex;
+        }
+        
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            background: var(--green);
+            border-radius: 50%;
+            animation: typingBounce 1.4s infinite ease-in-out;
+        }
+        
+        .typing-dots span:nth-child(1) { animation-delay: 0s; }
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+        
+        @keyframes typingBounce {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+            30% {
+                transform: translateY(-6px);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body>
@@ -613,11 +656,20 @@
             <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 0; background: #f5f5f5;" id="chatMessages">
                 <!-- 訊息會動態載入 -->
             </div>
+            <!-- Typing Indicator -->
+            <div class="typing-indicator" id="adminTypingIndicator">
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <span id="adminTypingText">有人正在輸入...</span>
+            </div>
             <div class="modal-footer" style="padding: 12px; background: white; border-top: 1px solid #eee;">
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="adminMessageInput" placeholder="以管理員身份發送訊息..." 
                         style="flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; font-size: 14px;"
-                        onkeypress="if(event.key === 'Enter') sendAdminMessage()">
+                        onkeypress="if(event.key === 'Enter') sendAdminMessage()" oninput="handleAdminTyping()">
                     <button onclick="sendAdminMessage()" 
                         style="padding: 10px 20px; background: var(--green); color: white; border: none; border-radius: 20px; cursor: pointer;">
                         發送
@@ -747,7 +799,7 @@
 
     <script>
         // ============ Config ============
-        const ADMIN_PASSWORD = '20251211'; // 請修改為您的密碼
+        const ADMIN_PASSWORD = 'hengdian2024'; // 請修改為您的密碼
         
         const SUPABASE_URL = 'https://kreazazhfqgnlehkbkgg.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZWF6YXpoZnFnbmxlaGtia2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NjE1NDMsImV4cCI6MjA4MDMzNzU0M30.W2tMRReAO3PEX9q6uvDCUu7UB25dZMwS1nSYPCNR9fU';
@@ -821,11 +873,55 @@
                     loadCoaches(),
                     loadRequests()
                 ]);
+                
+                // 訂閱全域訊息更新
+                subscribeToGlobalMessages();
+                
                 showToast('載入完成 ✓');
             } catch (error) {
                 console.error('Load error:', error);
                 showToast('載入失敗');
             }
+        }
+        
+        // 全域訊息訂閱 - 收到新訊息時顯示通知
+        let globalMsgSubscription = null;
+        
+        function subscribeToGlobalMessages() {
+            if (globalMsgSubscription) {
+                globalMsgSubscription.unsubscribe();
+            }
+            
+            globalMsgSubscription = supabaseClient
+                .channel('admin-global-messages')
+                .on(
+                    'postgres_changes',
+                    { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'messages'
+                    },
+                    async (payload) => {
+                        console.log('New message (admin global):', payload);
+                        const newMessage = payload.new;
+                        
+                        // 如果不是管理員自己發的
+                        if (newMessage.sender_type !== 'admin') {
+                            // 找到對應的請求
+                            const targetRequest = requests.find(r => r.id === newMessage.request_id);
+                            
+                            // 如果目前聊天室打開的不是這個請求，顯示通知
+                            if (currentChatRoomId !== newMessage.request_id) {
+                                const studentName = targetRequest?.student_name || '未知';
+                                showToast(`💬 ${studentName} 的討論有新訊息`);
+                            } else {
+                                // 如果聊天室已打開，重新載入訊息
+                                loadChatMessages(newMessage.request_id);
+                            }
+                        }
+                    }
+                )
+                .subscribe();
         }
 
         async function loadPendingCoaches() {
@@ -1441,10 +1537,25 @@
             document.getElementById('chatModal').classList.remove('show');
             currentChatRoomId = null;
             
+            // 停止 typing 狀態
+            stopAdminTyping();
+            
             // 取消訂閱
             if (chatSubscription) {
                 chatSubscription.unsubscribe();
                 chatSubscription = null;
+            }
+            
+            // 取消 typing 訂閱
+            if (adminTypingChannel) {
+                adminTypingChannel.unsubscribe();
+                adminTypingChannel = null;
+            }
+            
+            // 隱藏 typing indicator
+            const indicator = document.getElementById('adminTypingIndicator');
+            if (indicator) {
+                indicator.classList.remove('show');
             }
         }
         
@@ -1455,7 +1566,11 @@
             try {
                 const { data: messages, error } = await supabaseClient
                     .from('messages')
-                    .select('*')
+                    .select(`
+                        *,
+                        sender_coach:coaches!sender_coach_id(id, name, avatar),
+                        sender_student:students!sender_student_id(id, name, avatar)
+                    `)
                     .eq('request_id', requestId)
                     .order('created_at', { ascending: true });
                 
@@ -1487,15 +1602,39 @@
                     `;
                 }
                 
-                const isAdmin = m.sender_type === 'admin';
-                const bgColor = isAdmin ? 'var(--yellow)' : (m.sender_type === 'student' ? 'var(--pink-light)' : 'var(--green-light)');
-                const align = isAdmin ? 'flex-end' : 'flex-start';
+                // 判斷發送者類型和名稱
+                let senderName = '未知';
+                let senderType = '';
+                let bgColor = 'var(--green-light)';
+                let align = 'flex-start';
+                
+                if (m.sender_name === '管理員' || m.sender_type === 'admin') {
+                    // 管理員訊息
+                    senderName = '管理員';
+                    senderType = 'admin';
+                    bgColor = 'var(--yellow)';
+                    align = 'flex-end';
+                } else if (m.sender_coach) {
+                    // 教練訊息
+                    senderName = m.sender_coach.name || '未知教練';
+                    senderType = 'coach';
+                    bgColor = 'var(--green-light)';
+                } else if (m.sender_student) {
+                    // 學員訊息
+                    senderName = m.sender_student.name || '未知學員';
+                    senderType = 'student';
+                    bgColor = 'var(--pink-light)';
+                }
+                
+                const roleLabel = senderType === 'admin' ? ' (管理員)' : 
+                                  senderType === 'coach' ? ' (教練)' : 
+                                  senderType === 'student' ? ' (學員)' : '';
                 
                 return `
                     <div style="display: flex; justify-content: ${align}; padding: 4px 16px;">
                         <div style="max-width: 70%;">
                             <div style="font-size: 11px; color: #999; margin-bottom: 2px;">
-                                ${m.sender_name || '未知'} ${m.sender_type === 'admin' ? '(管理員)' : ''}
+                                ${senderName}${roleLabel}
                             </div>
                             <div style="background: ${bgColor}; padding: 10px 14px; border-radius: 16px; font-size: 14px;">
                                 ${m.content}
@@ -1530,6 +1669,87 @@
                     loadChatMessages(requestId);
                 })
                 .subscribe();
+            
+            // 訂閱 typing 狀態
+            subscribeToAdminTyping(requestId);
+        }
+        
+        // ============ Typing Indicator ============
+        let adminTypingChannel = null;
+        let adminTypingTimeout = null;
+        let adminIsTyping = false;
+        
+        function subscribeToAdminTyping(requestId) {
+            if (adminTypingChannel) {
+                adminTypingChannel.unsubscribe();
+            }
+            
+            adminTypingChannel = supabaseClient
+                .channel(`typing-${requestId}`)
+                .on('broadcast', { event: 'typing' }, (payload) => {
+                    const data = payload.payload;
+                    
+                    // 忽略管理員自己的 typing 事件
+                    if (data.user_id === 'admin') return;
+                    
+                    const indicator = document.getElementById('adminTypingIndicator');
+                    const typingText = document.getElementById('adminTypingText');
+                    
+                    if (data.is_typing) {
+                        typingText.textContent = `${data.user_name} 正在輸入...`;
+                        indicator.classList.add('show');
+                        
+                        // 滾動到底部
+                        const container = document.getElementById('chatMessages');
+                        container.scrollTop = container.scrollHeight;
+                    } else {
+                        indicator.classList.remove('show');
+                    }
+                })
+                .subscribe();
+        }
+        
+        function handleAdminTyping() {
+            if (!adminTypingChannel) return;
+            
+            // 如果還沒發送 typing 狀態，發送一次
+            if (!adminIsTyping) {
+                adminIsTyping = true;
+                adminTypingChannel.send({
+                    type: 'broadcast',
+                    event: 'typing',
+                    payload: {
+                        user_id: 'admin',
+                        user_name: '管理員',
+                        is_typing: true
+                    }
+                });
+            }
+            
+            // 清除之前的 timeout
+            if (adminTypingTimeout) {
+                clearTimeout(adminTypingTimeout);
+            }
+            
+            // 2 秒後停止 typing 狀態
+            adminTypingTimeout = setTimeout(() => {
+                stopAdminTyping();
+            }, 2000);
+        }
+        
+        function stopAdminTyping() {
+            if (!adminTypingChannel || !adminIsTyping) return;
+            
+            adminIsTyping = false;
+            adminTypingChannel.send({
+                type: 'broadcast',
+                event: 'typing',
+                payload: {
+                    user_id: 'admin',
+                    user_name: '管理員',
+                    is_typing: false
+                }
+            });
         }
         
         async function sendAdminMessage() {
@@ -1537,6 +1757,9 @@
             const content = input.value.trim();
             
             if (!content || !currentChatRoomId) return;
+            
+            // 停止 typing 狀態
+            stopAdminTyping();
             
             try {
                 const { error } = await supabaseClient
