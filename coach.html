@@ -2170,15 +2170,19 @@
             const { data, error } = await supabaseClient
                 .from('students')
                 .select('*')
-                .eq('is_active', true);
+                .neq('is_active', false);
             
-            if (error) throw error;
-            allStudents = data.map(s => ({
+            if (error) {
+                console.error('Load students error:', error);
+                allStudents = [];
+                return;
+            }
+            allStudents = (data || []).map(s => ({
                 id: s.id,
                 name: s.name,
                 avatar: s.avatar,
-                code: s.code,  // 學員代號
-                course: `第 ${s.current_course_count} 堂`,
+                code: s.code,
+                course: `第 ${s.current_course_count || 0} 堂`,
                 phone: s.phone,
                 notes: s.notes,
                 line_uid: s.line_uid
@@ -2848,11 +2852,32 @@
                     });
                 }
                 
+                // 發送 LINE 通知給其他參與者
+                notifyNewMessage(content);
+                
                 // Realtime 會自動更新 UI
             } catch (error) {
                 console.error('Send message error:', error);
                 showToast('發送失敗，請重試');
             }
+        }
+        
+        // 通知新訊息（不等待結果）
+        function notifyNewMessage(content) {
+            fetch(`${SUPABASE_URL}/functions/v1/notify-new-message`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({
+                    request_id: currentRequest.id,
+                    sender_type: 'coach',
+                    sender_id: currentUser.id,
+                    sender_name: currentUser.name,
+                    message_content: content
+                })
+            }).catch(err => console.log('Notify error:', err));
         }
 
         function sendQuick(content) {
