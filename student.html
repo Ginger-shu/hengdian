@@ -883,8 +883,8 @@
 
     <script>
         // ============ Supabase Config ============
-        const SUPABASE_URL = 'https://kreazazhfqgnlehkbkgg.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZWF6YXpoZnFnbmxlaGtia2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NjE1NDMsImV4cCI6MjA4MDMzNzU0M30.W2tMRReAO3PEX9q6uvDCUu7UB25dZMwS1nSYPCNR9fU';
+        const SUPABASE_URL = 'https://mnjilhpztnowaplggvkk.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uamlsaHB6dG5vd2FwbGdndmtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MDA0ODYsImV4cCI6MjA4MTI3NjQ4Nn0.X3e9DF3iT2KUR9ma3_Ins01vG607R155v0xia8hO_Qg';
         
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
@@ -1169,7 +1169,19 @@
                 return;
             }
             
-            renderAllMessages(data);
+            // 找到學員加入的訊息時間點
+            const joinedMessage = data.find(msg => 
+                msg.message_type === 'system' && msg.system_subtype === 'student_joined'
+            );
+            
+            // 只顯示學員加入後的訊息
+            let filteredMessages = data;
+            if (joinedMessage) {
+                const joinedTime = new Date(joinedMessage.created_at);
+                filteredMessages = data.filter(msg => new Date(msg.created_at) >= joinedTime);
+            }
+            
+            renderAllMessages(filteredMessages);
         }
 
         function renderAllMessages(messages) {
@@ -1180,11 +1192,11 @@
             container.innerHTML = '';
             container.appendChild(typing);
             
-            // 加入系統訊息
-            const startMsg = document.createElement('div');
-            startMsg.className = 'system-message';
-            startMsg.textContent = '💬 討論開始';
-            container.insertBefore(startMsg, typing);
+            // 加入歡迎訊息
+            const welcomeMsg = document.createElement('div');
+            welcomeMsg.className = 'system-message joined';
+            welcomeMsg.textContent = '🎉 您已加入討論，可以開始與教練溝通了！';
+            container.insertBefore(welcomeMsg, typing);
             
             messages.forEach(msg => {
                 const msgEl = document.createElement('div');
