@@ -1955,6 +1955,11 @@
                         </div>
                     </div>
                     
+                    <!-- 學員提醒文字 -->
+                    <div style="padding: 10px 12px; background: linear-gradient(135deg, #F3E8FF, #E9D5FF); border-radius: 8px; margin-bottom: 16px; font-size: 12px; color: #7B5EA7;">
+                        💡 學員進入後會看到：「如有任何問題，可隨時透過此連結進入聊天室與教練溝通」
+                    </div>
+                    
                     <!-- 提示訊息 -->
                     <div id="inviteHint" style="padding: 12px; background: var(--yellow-light); border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: none;">
                         <div style="font-weight: 500; margin-bottom: 4px;">💡 學員尚未綁定 LINE</div>
@@ -2198,8 +2203,22 @@
             
             if (error) throw error;
             
+            // 取得當前教練的專長
+            const mySpecialties = currentUser.specialties || [];
+            
+            // 過濾：只顯示自己發起的 + 自己專長的代課請求
+            const filteredData = data.filter(r => {
+                // 自己發起的，一定顯示
+                if (r.original_coach_id === currentUser.id) return true;
+                // 自己是代課教練的，一定顯示
+                if (r.substitute_coach_id === currentUser.id) return true;
+                // 別人發起的，只顯示跟自己專長相同的
+                if (mySpecialties.length === 0) return true; // 沒設定專長就全部顯示
+                return mySpecialties.includes(r.course_type);
+            });
+            
             // 轉換資料格式
-            requests = await Promise.all(data.map(async r => {
+            requests = await Promise.all(filteredData.map(async r => {
                 // 載入訊息
                 const messages = await loadMessages(r.id);
                 
