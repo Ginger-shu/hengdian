@@ -659,6 +659,7 @@
                         <thead>
                             <tr>
                                 <th>學員</th>
+                                <th>代號</th>
                                 <th>電話</th>
                                 <th>LINE UID</th>
                                 <th>備註</th>
@@ -786,6 +787,11 @@
                     <input type="text" id="studentName" placeholder="例：林小姐">
                 </div>
                 <div class="form-group">
+                    <label>代號</label>
+                    <input type="text" id="studentCode" placeholder="例：A001 或暱稱" maxlength="50">
+                    <small>方便教練搜尋用的代號或暱稱</small>
+                </div>
+                <div class="form-group">
                     <label>顯示頭像</label>
                     <input type="text" id="studentAvatar" placeholder="例：林（通常是姓氏）" maxlength="2">
                     <small>顯示在聊天室的頭像文字，通常是姓氏</small>
@@ -892,10 +898,10 @@
 
     <script>
         // ============ Config ============
-        const ADMIN_PASSWORD = '1211'; // 請修改為您的密碼
+        const ADMIN_PASSWORD = '1215'; // 請修改為您的密碼
         
-        const SUPABASE_URL = 'https://kreazazhfqgnlehkbkgg.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZWF6YXpoZnFnbmxlaGtia2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NjE1NDMsImV4cCI6MjA4MDMzNzU0M30.W2tMRReAO3PEX9q6uvDCUu7UB25dZMwS1nSYPCNR9fU';
+        const SUPABASE_URL = 'https://mnjilhpztnowaplggvkk.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uamlsaHB6dG5vd2FwbGdndmtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MDA0ODYsImV4cCI6MjA4MTI3NjQ4Nn0.X3e9DF3iT2KUR9ma3_Ins01vG607R155v0xia8hO_Qg';
         
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1192,7 +1198,7 @@
             if (students.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="5">
+                        <td colspan="6">
                             <div class="empty-state">
                                 <div class="icon">👤</div>
                                 <p>尚無學員資料</p>
@@ -1211,6 +1217,7 @@
                             <span>${s.name || '-'}</span>
                         </div>
                     </td>
+                    <td>${s.code || '-'}</td>
                     <td>${s.phone || '-'}</td>
                     <td style="font-size: 12px; color: var(--text-muted);">${s.line_uid ? s.line_uid.substring(0, 15) + '...' : '-'}</td>
                     <td>${s.notes || '-'}</td>
@@ -1366,13 +1373,14 @@
             const search = document.getElementById('studentSearch').value.toLowerCase();
             const filtered = students.filter(s => 
                 (s.name || '').toLowerCase().includes(search) ||
+                (s.code || '').toLowerCase().includes(search) ||
                 (s.phone || '').includes(search) ||
                 (s.notes || '').toLowerCase().includes(search)
             );
             
             const tbody = document.getElementById('studentsTable');
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">找不到符合的學員</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">找不到符合的學員</td></tr>`;
                 return;
             }
             
@@ -1384,6 +1392,7 @@
                             <span>${s.name || '-'}</span>
                         </div>
                     </td>
+                    <td>${s.code || '-'}</td>
                     <td>${s.phone || '-'}</td>
                     <td style="font-size: 12px; color: var(--text-muted);">${s.line_uid ? s.line_uid.substring(0, 15) + '...' : '-'}</td>
                     <td>${s.notes || '-'}</td>
@@ -1478,6 +1487,7 @@
             document.getElementById('studentModalTitle').textContent = student ? '編輯學員' : '新增學員';
             document.getElementById('studentId').value = student?.id || '';
             document.getElementById('studentName').value = student?.name || '';
+            document.getElementById('studentCode').value = student?.code || '';
             document.getElementById('studentAvatar').value = student?.avatar || '';
             document.getElementById('studentPhone').value = student?.phone || '';
             document.getElementById('studentLineUid').value = student?.line_uid || '';
@@ -1493,6 +1503,7 @@
         async function saveStudent() {
             const id = document.getElementById('studentId').value;
             const name = document.getElementById('studentName').value.trim();
+            const code = document.getElementById('studentCode').value.trim();
             const avatar = document.getElementById('studentAvatar').value.trim() || name.charAt(0);
             const phone = document.getElementById('studentPhone').value.trim();
             const line_uid = document.getElementById('studentLineUid').value.trim();
@@ -1508,7 +1519,7 @@
                     // Update
                     const { error } = await supabaseClient
                         .from('students')
-                        .update({ name, avatar, phone, line_uid, notes })
+                        .update({ name, code, avatar, phone, line_uid, notes })
                         .eq('id', id);
                     if (error) throw error;
                     showToast('學員已更新 ✓');
@@ -1516,7 +1527,7 @@
                     // Insert
                     const { error } = await supabaseClient
                         .from('students')
-                        .insert({ name, avatar, phone, line_uid, notes });
+                        .insert({ name, code, avatar, phone, line_uid, notes });
                     if (error) throw error;
                     showToast('學員已新增 ✓');
                 }
