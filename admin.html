@@ -614,7 +614,10 @@
         <!-- Header -->
         <div class="header">
             <h1>🏋️ 衡點健康 管理後台</h1>
-            <button class="logout-btn" onclick="logout()">登出</button>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span id="adminName" style="font-size: 14px; opacity: 0.9;">👤 管理員</span>
+                <button class="logout-btn" onclick="logout()">登出</button>
+            </div>
         </div>
 
         <!-- Tabs -->
@@ -623,6 +626,7 @@
             <div class="tab active" data-tab="students" onclick="switchTab('students')">👤 學員管理</div>
             <div class="tab" data-tab="coaches" onclick="switchTab('coaches')">👨‍🏫 教練管理</div>
             <div class="tab" data-tab="requests" onclick="switchTab('requests')">📋 代課請求</div>
+            <div class="tab" data-tab="logs" onclick="switchTab('logs')">📜 操作紀錄</div>
         </div>
 
         <!-- Content -->
@@ -719,6 +723,29 @@
                             </tr>
                         </thead>
                         <tbody id="requestsTable">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Logs Tab -->
+            <div class="tab-content" id="logsTab">
+                <div class="action-bar">
+                    <h2>📜 操作紀錄</h2>
+                    <button class="add-btn" onclick="loadLogs()" style="background: var(--blue);">🔄 重新整理</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>時間</th>
+                                <th>管理員</th>
+                                <th>操作</th>
+                                <th>對象</th>
+                                <th>詳情</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTable">
                         </tbody>
                     </table>
                 </div>
@@ -960,6 +987,7 @@
                 currentAdmin = data;
                 document.getElementById('loginScreen').style.display = 'none';
                 document.getElementById('adminContainer').style.display = 'block';
+                document.getElementById('adminName').textContent = '👤 ' + (data.name || data.username);
                 sessionStorage.setItem('adminLoggedIn', 'true');
                 sessionStorage.setItem('adminUsername', username);
                 loadAllData();
@@ -998,6 +1026,7 @@
                         currentAdmin = data;
                         document.getElementById('loginScreen').style.display = 'none';
                         document.getElementById('adminContainer').style.display = 'block';
+                        document.getElementById('adminName').textContent = '👤 ' + (data.name || data.username);
                         loadAllData();
                         return;
                     }
@@ -1015,6 +1044,56 @@
             document.getElementById(`${tabName}Tab`).classList.add('active');
         }
 
+        // ============ 操作紀錄 ============
+        async function logAction(action, targetType, targetId, targetName, details = '') {
+            if (!currentAdmin) return;
+            
+            try {
+                await supabaseClient
+                    .from('admin_logs')
+                    .insert({
+                        admin_id: currentAdmin.id,
+                        admin_name: currentAdmin.name || currentAdmin.username,
+                        action: action,
+                        target_type: targetType,
+                        target_id: targetId,
+                        target_name: targetName,
+                        details: details
+                    });
+            } catch (err) {
+                console.error('Log action error:', err);
+            }
+        }
+
+        async function loadLogs() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('admin_logs')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(100);
+                
+                if (error) throw error;
+                
+                const tbody = document.getElementById('logsTable');
+                tbody.innerHTML = data.map(log => {
+                    const time = new Date(log.created_at).toLocaleString('zh-TW');
+                    return `
+                        <tr>
+                            <td>${time}</td>
+                            <td>${log.admin_name || '-'}</td>
+                            <td>${log.action || '-'}</td>
+                            <td>${log.target_type ? `${log.target_type}: ${log.target_name || '-'}` : '-'}</td>
+                            <td>${log.details || '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                console.error('Load logs error:', error);
+            }
+        }
+
         // ============ Load Data ============
         async function loadAllData() {
             showToast('載入中...');
@@ -1023,7 +1102,8 @@
                     loadPendingCoaches(),
                     loadStudents(),
                     loadCoaches(),
-                    loadRequests()
+                    loadRequests(),
+                    loadLogs()
                 ]);
                 
                 // 訂閱全域訊息更新
@@ -1176,7 +1256,7 @@
                     </td>
                     <td>
                         <div class="action-btns">
-                            <button class="edit-btn" style="background: var(--green-light); color: var(--green-dark);" onclick="approveCoach('${c.id}')">✓ 核准</button>
+                            <button class="edit-btn" style="background: var(--green-light); color: var(--green-dark);" onclick="approveCoach('${c.id}', '${c.line_display_name || c.name}')">✓ 核准</button>
                             <button class="delete-btn" onclick="rejectCoach('${c.id}', '${c.line_display_name || c.name}')">✗ 拒絕</button>
                         </div>
                     </td>
@@ -1190,7 +1270,7 @@
             return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
         }
         
-        async function approveCoach(id) {
+        async function approveCoach(id, name) {
             // 取得勾選的課程類型
             const specialties = [];
             if (document.getElementById(`pending_pilates_${id}`)?.checked) specialties.push('pilates');
@@ -1215,6 +1295,7 @@
                 
                 if (error) throw error;
                 
+                await logAction('核准教練', '教練', id, name, `課程類型: ${specialties.join(', ')}`);
                 showToast('教練已核准 ✓');
                 await loadPendingCoaches();
                 await loadCoaches();
@@ -1235,6 +1316,7 @@
                 
                 if (error) throw error;
                 
+                await logAction('拒絕教練', '教練', id, name);
                 showToast('已拒絕申請');
                 await loadPendingCoaches();
             } catch (error) {
@@ -1573,13 +1655,17 @@
                         .update({ name, code, avatar, phone, line_uid, notes })
                         .eq('id', id);
                     if (error) throw error;
+                    await logAction('編輯學員', '學員', id, name);
                     showToast('學員已更新 ✓');
                 } else {
                     // Insert
-                    const { error } = await supabaseClient
+                    const { data, error } = await supabaseClient
                         .from('students')
-                        .insert({ name, code, avatar, phone, line_uid, notes, is_active: true });
+                        .insert({ name, code, avatar, phone, line_uid, notes, is_active: true })
+                        .select()
+                        .single();
                     if (error) throw error;
+                    await logAction('新增學員', '學員', data.id, name);
                     showToast('學員已新增 ✓');
                 }
 
@@ -1648,13 +1734,17 @@
                         .update({ name, avatar, phone, line_uid, specialties, is_active })
                         .eq('id', id);
                     if (error) throw error;
+                    await logAction('編輯教練', '教練', id, name, `課程類型: ${specialties.join(', ')}`);
                     showToast('教練已更新 ✓');
                 } else {
                     // Insert
-                    const { error } = await supabaseClient
+                    const { data, error } = await supabaseClient
                         .from('coaches')
-                        .insert({ name, avatar, phone, line_uid, specialties, is_active });
+                        .insert({ name, avatar, phone, line_uid, specialties, is_active })
+                        .select()
+                        .single();
                     if (error) throw error;
+                    await logAction('新增教練', '教練', data.id, name, `課程類型: ${specialties.join(', ')}`);
                     showToast('教練已新增 ✓');
                 }
 
@@ -1685,7 +1775,9 @@
                 
                 if (error) throw error;
                 
-                showToast(`已刪除${deleteTarget.type === 'student' ? '學員' : '教練'} ✓`);
+                const targetTypeText = deleteTarget.type === 'student' ? '學員' : '教練';
+                await logAction(`刪除${targetTypeText}`, targetTypeText, deleteTarget.id, deleteTarget.name);
+                showToast(`已刪除${targetTypeText} ✓`);
                 closeModal('deleteModal');
                 
                 if (deleteTarget.type === 'student') {
@@ -2025,6 +2117,7 @@
                         content: '❌ 管理員已確認取消此代課請求'
                     });
                 
+                await logAction('確認取消代課', '代課請求', requestId, studentName);
                 showToast('✅ 已取消代課請求');
                 
                 // 重新載入列表
@@ -2067,6 +2160,7 @@
                 
                 if (reqError) throw reqError;
                 
+                await logAction('刪除代課請求', '代課請求', requestId, studentName);
                 showToast('✅ 已刪除代課請求');
                 
                 // 重新載入列表
