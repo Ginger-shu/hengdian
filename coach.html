@@ -3567,7 +3567,6 @@
             // 根據教練專長動態生成課程選項
             renderCourseOptions();
             
-            renderStudentList();
             openModal('createModal');
         }
         
@@ -3617,89 +3616,6 @@
                     </div>
                 `;
             }).join('');
-        }
-
-        function renderStudentList() {
-            const container = document.getElementById('studentList');
-            
-            if (allStudents.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 20px; color: var(--text-muted);">
-                        <div style="font-size: 32px; margin-bottom: 8px;">👆</div>
-                        <p>尚無學員資料，請先新增學員</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            container.innerHTML = allStudents.map(s => `
-                <div class="student-option" data-id="${s.id}" onclick="selectStudent(this, '${s.id}')">
-                    <div class="student-row">
-                        <div class="student-avatar">${s.avatar || s.name.charAt(0)}</div>
-                        <div>
-                            <div class="student-name">${s.name}</div>
-                            <div class="student-detail">${s.phone || '未填電話'}</div>
-                        </div>
-                    </div>
-                    <div class="check-circle">✓</div>
-                </div>
-            `).join('');
-        }
-        
-        async function addNewStudent() {
-            const nameInput = document.getElementById('newStudentName');
-            const name = nameInput.value.trim();
-            
-            if (!name) {
-                showToast('請輸入學員姓名');
-                return;
-            }
-            
-            try {
-                showToast('新增學員中...');
-                
-                // 建立新學員
-                const { data: newStudent, error } = await supabaseClient
-                    .from('students')
-                    .insert({
-                        name: name,
-                        avatar: name.charAt(0),
-                        notes: '由教練建立'
-                    })
-                    .select()
-                    .single();
-                
-                if (error) throw error;
-                
-                // 加入列表
-                allStudents.unshift(newStudent);
-                
-                // 清空輸入框
-                nameInput.value = '';
-                
-                // 重新渲染列表
-                renderStudentList();
-                
-                // 自動選擇新學員
-                setTimeout(() => {
-                    const newOption = document.querySelector(`[data-id="${newStudent.id}"]`);
-                    if (newOption) {
-                        selectStudent(newOption, newStudent.id);
-                    }
-                }, 100);
-                
-                showToast('學員已新增 ✓');
-                
-            } catch (error) {
-                console.error('新增學員失敗:', error);
-                showToast('新增失敗：' + error.message);
-            }
-        }
-
-        function selectStudent(el, id) {
-            document.querySelectorAll('.student-option').forEach(e => e.classList.remove('selected'));
-            el.classList.add('selected');
-            selectedStudent = allStudents.find(s => s.id === id);
         }
 
         function selectCourse(el) {
