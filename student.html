@@ -1062,6 +1062,27 @@
                     };
                 }
                 
+                // 如果狀態還不是 with-student，表示學員第一次加入
+                if (currentRequest.status !== 'with-student' && currentRequest.status !== 'resolved') {
+                    // 更新狀態為 with-student
+                    await supabaseClient
+                        .from('substitute_requests')
+                        .update({ status: 'with-student' })
+                        .eq('id', requestId);
+                    
+                    // 新增學員加入的系統訊息
+                    await supabaseClient
+                        .from('messages')
+                        .insert({
+                            request_id: requestId,
+                            message_type: 'system',
+                            system_subtype: 'student_joined',
+                            content: `📢 ${currentStudent.name} 已加入討論`
+                        });
+                    
+                    console.log('學員首次加入，已更新狀態');
+                }
+                
                 // 更新 UI
                 updateUI();
                 
@@ -1366,11 +1387,32 @@
                         content: content
                     });
                 
+                // 發送 LINE 通知給教練們
+                notifyNewMessage(content);
+                
                 // Realtime 會自動更新
             } catch (error) {
                 console.error('Send error:', error);
                 showToast('發送失敗');
             }
+        }
+        
+        // 通知新訊息（不等待結果）
+        function notifyNewMessage(content) {
+            fetch(`${SUPABASE_URL}/functions/v1/notify-new-message`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({
+                    request_id: requestId,
+                    sender_type: 'student',
+                    sender_id: currentStudent.id,
+                    sender_name: currentStudent.name,
+                    message_content: content
+                })
+            }).catch(err => console.log('Notify error:', err));
         }
 
         function sendQuick(content) {
