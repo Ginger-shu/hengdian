@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>衡點 - 管理後台</title>
+    <title>衡點健康 - 管理後台</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -602,8 +602,9 @@
         <div class="login-box">
             <h1>🏋️ 衡點健康</h1>
             <p>管理後台</p>
-            <div class="login-error" id="loginError">密碼錯誤</div>
-            <input type="password" id="passwordInput" placeholder="請輸入管理密碼" onkeypress="if(event.key==='Enter')login()">
+            <div class="login-error" id="loginError">帳號或密碼錯誤</div>
+            <input type="text" id="usernameInput" placeholder="請輸入帳號" autocomplete="username">
+            <input type="password" id="passwordInput" placeholder="請輸入密碼" onkeypress="if(event.key==='Enter')login()" autocomplete="current-password">
             <button onclick="login()">登入</button>
         </div>
     </div>
@@ -637,7 +638,7 @@
                             <tr>
                                 <th>LINE 名稱</th>
                                 <th>申請時間</th>
-                                <th>課程類型>克ㄜ>ㄑ
+                                <th>設定課程類型</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -685,7 +686,7 @@
                             <tr>
                                 <th>教練</th>
                                 <th>電話</th>
-                                <th>專長</th>
+                                <th>課程類型</th>
                                 <th>專屬連結</th>
                                 <th>狀態</th>
                                 <th>操作</th>
@@ -845,7 +846,7 @@
                     <small>教練第一次登入時會顯示，再填入這裡</small>
                 </div>
                 <div class="form-group">
-                    <label>專長</label>
+                    <label>課程類型</label>
                     <div class="checkbox-group">
                         <label class="checkbox-item">
                             <input type="checkbox" id="specialtyPilates" value="pilates"> 皮拉提斯
@@ -898,7 +899,7 @@
 
     <script>
         // ============ Config ============
-        const ADMIN_PASSWORD = '1215'; // 請修改為您的密碼
+        let currentAdmin = null; // 當前登入的管理員
         
         const SUPABASE_URL = 'https://mnjilhpztnowaplggvkk.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uamlsaHB6dG5vd2FwbGdndmtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MDA0ODYsImV4cCI6MjA4MTI3NjQ4Nn0.X3e9DF3iT2KUR9ma3_Ins01vG607R155v0xia8hO_Qg';
@@ -929,30 +930,80 @@
         let deleteTarget = null;
 
         // ============ Auth ============
-        function login() {
+        async function login() {
+            const username = document.getElementById('usernameInput').value.trim();
             const password = document.getElementById('passwordInput').value;
-            if (password === ADMIN_PASSWORD) {
+            
+            if (!username || !password) {
+                document.getElementById('loginError').textContent = '請輸入帳號和密碼';
+                document.getElementById('loginError').style.display = 'block';
+                return;
+            }
+            
+            try {
+                // 查詢 admins 資料表驗證
+                const { data, error } = await supabaseClient
+                    .from('admins')
+                    .select('*')
+                    .eq('username', username)
+                    .eq('password', password)
+                    .eq('is_active', true)
+                    .single();
+                
+                if (error || !data) {
+                    document.getElementById('loginError').textContent = '帳號或密碼錯誤';
+                    document.getElementById('loginError').style.display = 'block';
+                    return;
+                }
+                
+                // 登入成功
+                currentAdmin = data;
                 document.getElementById('loginScreen').style.display = 'none';
                 document.getElementById('adminContainer').style.display = 'block';
                 sessionStorage.setItem('adminLoggedIn', 'true');
+                sessionStorage.setItem('adminUsername', username);
                 loadAllData();
-            } else {
+                
+            } catch (err) {
+                console.error('Login error:', err);
+                document.getElementById('loginError').textContent = '登入失敗，請稍後再試';
                 document.getElementById('loginError').style.display = 'block';
             }
         }
 
         function logout() {
             sessionStorage.removeItem('adminLoggedIn');
+            sessionStorage.removeItem('adminUsername');
+            currentAdmin = null;
             document.getElementById('loginScreen').style.display = 'flex';
             document.getElementById('adminContainer').style.display = 'none';
+            document.getElementById('usernameInput').value = '';
             document.getElementById('passwordInput').value = '';
+            document.getElementById('loginError').style.display = 'none';
         }
 
-        function checkAuth() {
+        async function checkAuth() {
             if (sessionStorage.getItem('adminLoggedIn') === 'true') {
-                document.getElementById('loginScreen').style.display = 'none';
-                document.getElementById('adminContainer').style.display = 'block';
-                loadAllData();
+                const username = sessionStorage.getItem('adminUsername');
+                if (username) {
+                    // 驗證帳號仍有效
+                    const { data } = await supabaseClient
+                        .from('admins')
+                        .select('*')
+                        .eq('username', username)
+                        .eq('is_active', true)
+                        .single();
+                    
+                    if (data) {
+                        currentAdmin = data;
+                        document.getElementById('loginScreen').style.display = 'none';
+                        document.getElementById('adminContainer').style.display = 'block';
+                        loadAllData();
+                        return;
+                    }
+                }
+                // 驗證失敗，登出
+                logout();
             }
         }
 
@@ -1140,7 +1191,7 @@
         }
         
         async function approveCoach(id) {
-            // 取得勾選的專長
+            // 取得勾選的課程類型
             const specialties = [];
             if (document.getElementById(`pending_pilates_${id}`)?.checked) specialties.push('pilates');
             if (document.getElementById(`pending_weight_${id}`)?.checked) specialties.push('weight');
@@ -1148,7 +1199,7 @@
             if (document.getElementById(`pending_ai_${id}`)?.checked) specialties.push('ai');
             
             if (specialties.length === 0) {
-                showToast('請至少選擇一個專長');
+                showToast('請至少選擇一個課程類型');
                 return;
             }
             
@@ -1527,7 +1578,7 @@
                     // Insert
                     const { error } = await supabaseClient
                         .from('students')
-                        .insert({ name, code, avatar, phone, line_uid, notes });
+                        .insert({ name, code, avatar, phone, line_uid, notes, is_active: true });
                     if (error) throw error;
                     showToast('學員已新增 ✓');
                 }
