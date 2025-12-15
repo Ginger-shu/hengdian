@@ -1882,8 +1882,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">原因（選填）</label>
-                    <input type="text" class="form-input" id="inputReason" placeholder="例：臨時有事需要請假">
+                    <label class="form-label">原因 <span style="color: #e74c3c;">*</span></label>
+                    <input type="text" class="form-input" id="inputReason" placeholder="例：臨時有事需要請假" required>
                 </div>
 
                 <div class="info-hint">
@@ -1891,7 +1891,7 @@
                     <span class="hint-text">發起後可在聊天室中搜尋並邀請學員加入</span>
                 </div>
 
-                <button class="submit-btn" onclick="createRequest()">發送代課需求</button>
+                <button class="submit-btn" id="createRequestBtn" onclick="createRequest()">發送代課需求</button>
             </div>
         </div>
     </div>
@@ -2004,7 +2004,7 @@
         const COURSE_CONFIG = {
             pilates: { name: '皮拉提斯', icon: '🧘', color: 'pilates' },
             weight: { name: '重量訓練', icon: '🏋️', color: 'weight' },
-            stretch: { name: '伸展課程', icon: '🙆', color: 'stretch' },
+            stretch: { name: '伸展課程', icon: '🤸', color: 'stretch' },
             ai: { name: 'AI 體態分析', icon: '🤖', color: 'ai' }
         };
 
@@ -2108,7 +2108,7 @@
                 'pilates': { name: '皮拉提斯', icon: '🧘' },
                 'weight': { name: '重訓', icon: '💪' },
                 'stretch': { name: '伸展', icon: '🤸' },
-                'ai': { name: 'AI體態', icon: '📊' }
+                'ai': { name: 'AI體態', icon: '🤖' }
             };
             
             container.innerHTML = specialties.map(s => {
@@ -2730,8 +2730,13 @@
                 // 只有原教練可以邀請學員
                 if (isOriginalCoach) {
                     inviteBtn.style.display = 'flex';
-                    // 原教練在學員未加入前可以申請取消
-                    cancelBtn.style.display = 'flex';
+                    // 原教練在學員未邀請前可以申請取消
+                    // 如果已邀請學員（有 student_id），則不能取消
+                    if (!currentRequest.student?.id) {
+                        cancelBtn.style.display = 'flex';
+                    } else {
+                        cancelBtn.style.display = 'none';
+                    }
                 }
                 quickConfirmBtn.style.display = 'flex';
                 actionBar.style.display = 'flex';
@@ -3080,10 +3085,9 @@
                         <div class="result-avatar">${student.name.charAt(0)}</div>
                         <div>
                             <div class="result-name">${student.name}</div>
-                            <div class="result-detail">${student.course} · ${student.phone}</div>
+                            <div class="result-detail">${student.course} · ${student.phone || '未填電話'}</div>
                         </div>
                     </div>
-                    <button class="result-action" onclick="shareStudentInfo('${student.id}')">分享資料</button>
                 </div>
             `;
         }
@@ -3320,8 +3324,18 @@
         async function requestCancelSubstitute() {
             if (!currentRequest) return;
             
-            // 確認對話框
-            if (!confirm(`確定要取消這筆代課請求嗎？\n\n課程：${COURSE_CONFIG[currentRequest.course_type].name}\n日期：${formatDate(currentRequest.course_date)}\n學員：${currentRequest.student.name}\n\n取消後需等待管理員確認。`)) {
+            // 如果已邀請學員，不能取消
+            if (currentRequest.student?.id) {
+                showToast('已邀請學員，無法申請取消');
+                return;
+            }
+            
+            // 請用戶填寫取消原因
+            const cancelReason = prompt(`請填寫取消原因：\n\n課程：${COURSE_CONFIG[currentRequest.course_type].name}\n日期：${formatDate(currentRequest.course_date)}`);
+            
+            // 如果用戶按取消或沒填原因
+            if (!cancelReason || !cancelReason.trim()) {
+                showToast('請填寫取消原因');
                 return;
             }
             
@@ -3336,14 +3350,14 @@
                 
                 if (error) throw error;
                 
-                // 發送系統訊息
+                // 發送系統訊息（包含取消原因）
                 await supabaseClient
                     .from('messages')
                     .insert({
                         request_id: currentRequest.id,
                         message_type: 'system',
                         system_subtype: 'cancel_requested',
-                        content: `📤 ${currentUser.name} 已申請取消此代課請求，等待管理員確認`
+                        content: `📤 ${currentUser.name} 已申請取消此代課請求\n原因：${cancelReason.trim()}\n等待管理員確認`
                     });
                 
                 showToast('✅ 已申請取消，等待管理員確認');
@@ -3623,7 +3637,7 @@
             const courseConfig = {
                 'pilates': { icon: '🧘', name: '皮拉提斯' },
                 'weight': { icon: '🏋️', name: '重量訓練' },
-                'stretch': { icon: '🙆', name: '伸展課程' },
+                'stretch': { icon: '🤸', name: '伸展課程' },
                 'ai': { icon: '🤖', name: 'AI 體態分析' }
             };
             
@@ -3638,7 +3652,7 @@
                     <div class="auto-selected-course ${selectedCourse}">
                         <span class="course-icon">${courseConfig[selectedCourse].icon}</span>
                         <span class="course-name">${courseConfig[selectedCourse].name}</span>
-                        <span class="auto-tag">（您的專長）</span>
+                        <span class="auto-tag"></span>
                     </div>
                 `;
                 return;
@@ -3646,7 +3660,7 @@
             
             // 有多個專長，顯示選項讓教練選擇
             courseTypeGroup.innerHTML = `
-                <label class="form-label">課程類型 <span style="font-size: 12px; color: var(--text-muted);">（您的專長）</span></label>
+                <label class="form-label">課程類型</label>
                 <div class="course-grid" id="courseGrid"></div>
             `;
             
@@ -3672,11 +3686,18 @@
             const date = document.getElementById('inputDate').value;
             const timeSelect = document.getElementById('inputTime').value;
             const time = getSelectedTime();
-            const reason = document.getElementById('inputReason').value;
+            const reason = document.getElementById('inputReason').value.trim();
+            const submitBtn = document.getElementById('createRequestBtn');
 
             // 驗證（不需要學員）
             if (!date || !timeSelect || !selectedCourse) {
                 showToast('請填寫完整資訊');
+                return;
+            }
+            
+            // 原因必填
+            if (!reason) {
+                showToast('請填寫請假原因');
                 return;
             }
 
@@ -3694,10 +3715,12 @@
                 }
             }
 
+            // 禁用按鈕，顯示建立中
+            submitBtn.disabled = true;
+            submitBtn.textContent = '建立中...';
+
             try {
-                const message = reason
-                    ? `各位好，${formatDate(date)} ${time} 我需要請假，${reason}，有人可以幫忙嗎？🙏`
-                    : `各位好，${formatDate(date)} ${time} 我需要請假，有人可以幫忙嗎？🙏`;
+                const message = `各位好，${formatDate(date)} ${time} 我需要請假，${reason}，有人可以幫忙嗎？🙏`;
 
                 await createRequestToSupabase({
                     course_type: selectedCourse,
@@ -3717,6 +3740,10 @@
             } catch (error) {
                 console.error('Create request error:', error);
                 showToast('建立失敗，請重試');
+            } finally {
+                // 恢復按鈕
+                submitBtn.disabled = false;
+                submitBtn.textContent = '發送代課需求';
             }
         }
 
