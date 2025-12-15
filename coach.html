@@ -1715,11 +1715,8 @@
             </div>
 
             <div class="action-bar" id="actionBar">
-                <button class="action-btn" onclick="sendQuick('👋 我可以接手！')">👋 我可以接手</button>
-                <button class="action-btn" onclick="sendQuick('😅 那天也有課')">😅 那天也有課</button>
                 <button class="action-btn pink" onclick="openSearchStudent()">🔍 查詢學員</button>
                 <button class="action-btn confirm" id="confirmSubstituteBtn" onclick="confirmSubstitute()" style="display:none;">✅ 確認接手</button>
-                <button class="action-btn confirm" onclick="sendQuick('✅ 確認接手，我來處理！')" id="quickConfirmBtn">✅ 確認接手</button>
                 <button class="action-btn cancel" id="cancelRequestBtn" onclick="requestCancelSubstitute()" style="display:none;">❌ 申請取消</button>
             </div>
 
@@ -2478,11 +2475,6 @@
                 throw error;
             }
             
-            // 發送第一則訊息
-            if (requestData.message) {
-                await sendMessageToSupabase(data.id, requestData.message);
-            }
-            
             // 通知同專長的教練
             try {
                 const response = await supabaseClient.functions.invoke('notify-coaches', {
@@ -2672,7 +2664,6 @@
             const endBtn = document.getElementById('endChatBtn');
             const actionBar = document.getElementById('actionBar');
             const confirmBtn = document.getElementById('confirmSubstituteBtn');
-            const quickConfirmBtn = document.getElementById('quickConfirmBtn');
             const cancelBtn = document.getElementById('cancelRequestBtn');
             const chatReminder = document.getElementById('chatReminder');
             const finishCourseBtn = document.getElementById('finishCourseBtn');
@@ -2683,7 +2674,6 @@
             // 先隱藏所有按鈕和提醒
             inviteBtn.style.display = 'none';
             confirmBtn.style.display = 'none';
-            quickConfirmBtn.style.display = 'none';
             cancelBtn.style.display = 'none';
             endBtn.classList.remove('show');
             chatReminder.classList.remove('show');
@@ -2738,7 +2728,6 @@
                         cancelBtn.style.display = 'none';
                     }
                 }
-                quickConfirmBtn.style.display = 'flex';
                 actionBar.style.display = 'flex';
             }
 
@@ -3492,7 +3481,6 @@
                     
                     // 更新按鈕狀態
                     document.getElementById('confirmSubstituteBtn').style.display = 'none';
-                    document.getElementById('quickConfirmBtn').style.display = 'none';
                 } else {
                     throw new Error(data.error || '通知失敗');
                 }
